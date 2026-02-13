@@ -27,8 +27,12 @@ struct StationCache {
         return try? JSONDecoder().decode([Station].self, from: data)
     }
     
+    static func lastRefreshDate() -> Date? {
+        UserDefaults.standard.object(forKey: lastRefreshKey) as? Date
+    }
+
     static func isExpired(maxAge: TimeInterval = 86400) -> Bool {
-        guard let lastRefresh = UserDefaults.standard.object(forKey: lastRefreshKey) as? Date else {
+        guard let lastRefresh = lastRefreshDate() else {
             return true
         }
         return Date().timeIntervalSince(lastRefresh) > maxAge

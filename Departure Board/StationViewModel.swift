@@ -22,6 +22,10 @@ class StationViewModel: ObservableObject {
         loadCachedStations()
     }
 
+    func forceRefresh() async {
+        await fetchStationsInBackground()
+    }
+
     private func loadCachedStations() {
         if let cached = StationCache.load() {
             stations = cached
@@ -53,6 +57,21 @@ class StationViewModel: ObservableObject {
         } catch {
             print("Background refresh failed:", error)
         }
+    }
+
+    func fetchServiceDetail(serviceID: String) async throws -> ServiceDetail {
+        guard let url = URL(string: "https://rail.breslan.co.uk/api/service/\(serviceID)") else {
+            throw URLError(.badURL)
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+
+        return try JSONDecoder().decode(ServiceDetail.self, from: data)
     }
 
     func fetchBoard(for crs: String, type: BoardType = .departures) async throws -> DepartureBoard {

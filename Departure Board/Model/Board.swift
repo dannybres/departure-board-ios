@@ -20,7 +20,7 @@ struct TrainServices: Codable {
     let service: [Service]
 }
 
-struct Service: Codable, Identifiable {
+struct Service: Codable, Identifiable, Hashable {
     
     let std: String?
     let etd: String?
@@ -42,11 +42,11 @@ struct Service: Codable, Identifiable {
     var estimated: String { eta ?? etd ?? "missing" }
 }
 
-struct LocationContainer: Codable {
+struct LocationContainer: Codable, Hashable {
     let location: [Location]
 }
 
-struct Location: Codable {
+struct Location: Codable, Hashable {
     let locationName: String
     let crs: String
     let via: String?

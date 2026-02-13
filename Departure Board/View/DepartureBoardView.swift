@@ -15,12 +15,20 @@ enum BoardType: String, CaseIterable {
 struct DepartureBoardView: View {
     
     let station: Station
-    
+    var initialBoardType: BoardType = .departures
+
     // MARK: - State
     @State private var board: DepartureBoard?
     @State private var isLoading = true
+    @State private var showInfo = false
     @State private var errorMessage: String?
     @State private var selectedBoard: BoardType = .departures
+
+    init(station: Station, initialBoardType: BoardType = .departures) {
+        self.station = station
+        self.initialBoardType = initialBoardType
+        _selectedBoard = State(initialValue: initialBoardType)
+    }
     
     var body: some View {
         Group {
@@ -37,8 +45,21 @@ struct DepartureBoardView: View {
                 List {
                     if let services = board.trainServices?.service {
                         ForEach(services) { service in
-                            DepartureRow(service: service, boardType: selectedBoard)
+                            NavigationLink(value: service) {
+                                DepartureRow(service: service, boardType: selectedBoard)
+                            }
                         }
+                        
+                        HStack {
+                            Spacer()
+                            Image("NRE")   // must match your asset name
+                                .resizable()
+                                .scaledToFit()
+                                .frame(height: 80)
+                                .opacity(0.6)
+                            Spacer()
+                        }
+                        .listRowSeparator(.hidden)
                     } else {
                         Text("No services available")
                             .foregroundStyle(.secondary)
@@ -46,6 +67,26 @@ struct DepartureBoardView: View {
                 }
                 .refreshable {
                     await loadBoard(type: selectedBoard)
+                }
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button {
+                            // Action here
+                            showInfo = true
+                        } label: {
+                            Image(systemName: "info.circle")
+                        }
+                    }
+                }
+                .sheet(isPresented: $showInfo) {
+                    NavigationStack {
+                        Text("Hello")
+                            .toolbar {
+                                ToolbarItem(placement: .topBarTrailing) {
+                                    Button("Done") { showInfo = false }
+                                }
+                            }
+                    }
                 }
             }
         }
@@ -60,6 +101,12 @@ struct DepartureBoardView: View {
             .padding()
         }
         .navigationTitle(station.name)
+        .navigationDestination(for: Service.self) { service in
+            ServiceDetailView(
+                service: service,
+                boardType: selectedBoard
+            )
+        }
         .onChange(of: selectedBoard) {
             Task {
                 await loadBoard(type: selectedBoard, showLoading: true)
