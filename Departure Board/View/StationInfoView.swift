@@ -48,6 +48,7 @@ struct StationInfoView: View {
 
     private func stationInfoList(_ info: StationInfo) -> some View {
         List {
+            // Group 1: Map, Alerts, Station, InformationSystems, CustomerService
             Group {
             // Map
             if let lat = Double(info.Latitude ?? ""),
@@ -71,9 +72,10 @@ struct StationInfoView: View {
             if let alerts = info.StationAlerts?.AlertText?.texts, !alerts.isEmpty {
                 Section {
                     ForEach(alerts, id: \.self) { alert in
-                        Text(stripHTML(alert))
+                        Text(richText(alert))
                             .font(.subheadline)
                             .foregroundStyle(.red)
+                            .copyable(stripHTML(alert))
                     }
                 } header: {
                     Label("Alerts", systemImage: "exclamationmark.triangle.fill")
@@ -84,9 +86,11 @@ struct StationInfoView: View {
             Section {
                 if let op = info.StationOperator {
                     LabeledContent("Operator", value: op)
+                        .copyable(op)
                 }
 
                 LabeledContent("CRS Code", value: info.CrsCode)
+                    .copyable(info.CrsCode)
 
                 if let address = formattedAddress(info) {
                     if let lat = Double(info.Latitude ?? ""),
@@ -104,30 +108,40 @@ struct StationInfoView: View {
                             Text(address)
                                 .multilineTextAlignment(.trailing)
                         }
+                        .copyable(address)
                     }
                 }
 
                 if let staffing = info.Staffing?.StaffingLevel {
                     LabeledContent("Staffing", value: formatStaffing(staffing))
+                        .copyable(formatStaffing(staffing))
                 }
 
                 if info.Staffing?.ClosedCircuitTelevision?.Overall == "true" {
                     LabeledContent("CCTV", value: "Yes")
                 }
 
-                if let cis = info.InformationSystems {
-                    if cis.departureScreens != nil {
-                        LabeledContent("Departure Screens", value: cis.departureScreens == true ? "Yes" : "No")
-                    }
-                    if cis.arrivalScreens != nil {
-                        LabeledContent("Arrival Screens", value: cis.arrivalScreens == true ? "Yes" : "No")
-                    }
-                    if cis.announcements != nil {
-                        LabeledContent("Announcements", value: cis.announcements == true ? "Yes" : "No")
-                    }
-                }
             } header: {
                 Label("Station", systemImage: "building.2")
+            }
+
+            if info.InformationSystems != nil {
+                Section {
+                    if let departures = info.InformationSystems?.departureScreens {
+                        LabeledContent("Departure Screens", value: departures ? "Yes" : "No")
+                            .copyable(departures ? "Yes" : "No")
+                    }
+                    if let arrivals = info.InformationSystems?.arrivalScreens {
+                        LabeledContent("Arrival Screens", value: arrivals ? "Yes" : "No")
+                            .copyable(arrivals ? "Yes" : "No")
+                    }
+                    if let announcements = info.InformationSystems?.announcements {
+                        LabeledContent("Announcements", value: announcements ? "Yes" : "No")
+                            .copyable(announcements ? "Yes" : "No")
+                    }
+                } header: {
+                    Label("Information Systems", systemImage: "tv")
+                }
             }
 
             // Customer Service
@@ -140,16 +154,22 @@ struct StationInfoView: View {
                             Link(destination: url) {
                                 LabeledContent("Phone", value: phone)
                             }
+                            .copyable(phone)
                         }
                         Text(cleaned)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .copyable(cleaned)
                     } header: {
                         Label("Customer Service", systemImage: "person.fill")
                     }
                 }
             }
 
+            } // end Group 1
+
+            // Group 2: LeftLuggage, LostProperty, TicketOffice, Facilities
+            Group {
             // Left Luggage
             if let ll = info.PassengerServices?.LeftLuggage {
                 Section {
@@ -177,6 +197,7 @@ struct StationInfoView: View {
                             Text(cleaned)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                                .copyable(cleaned)
                         }
                     }
 
@@ -186,6 +207,7 @@ struct StationInfoView: View {
                             Text(cleaned)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                                .copyable(cleaned)
                         }
                     }
 
@@ -194,6 +216,7 @@ struct StationInfoView: View {
                             if let days = entry.DayTypes?.description,
                                let hours = entry.OpeningHours?.formatted, !hours.isEmpty {
                                 LabeledContent(days, value: hours)
+                                    .copyable(hours)
                             }
                         }
                     }
@@ -227,7 +250,7 @@ struct StationInfoView: View {
                     if hasNote || hasHours {
                         DisclosureGroup {
                             if let note = lounge.Annotation?.Note {
-                                Text(stripHTML(note))
+                                Text(richText(note))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -251,15 +274,16 @@ struct StationInfoView: View {
                 Label("Facilities", systemImage: "list.bullet")
             }
 
-            } // end Group 1
+            } // end Group 2
 
+            // Group 3: Accessibility, TransportLinks, Fares
             Group {
             // Accessibility
             Section {
                 if let coverage = info.ImpairedAccess?.StepFreeAccess?.Coverage {
                     if let note = info.ImpairedAccess?.StepFreeAccess?.Annotation?.Note {
                         DisclosureGroup {
-                            Text(stripHTML(note))
+                            Text(richText(note))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } label: {
@@ -267,13 +291,15 @@ struct StationInfoView: View {
                         }
                     } else {
                         LabeledContent("Step-Free Access", value: formatCoverage(coverage))
+                            .padding(.trailing, 20)
+                            .copyable(formatCoverage(coverage))
                     }
                 }
 
                 if let gate = info.ImpairedAccess?.TicketGate {
                     if let comments = info.ImpairedAccess?.TicketGateComments?.Note {
                         DisclosureGroup {
-                            Text(stripHTML(comments))
+                            Text(richText(comments))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } label: {
@@ -281,11 +307,13 @@ struct StationInfoView: View {
                         }
                     } else {
                         LabeledContent("Ticket Gates", value: gate == "true" ? "Yes" : "No")
+                            .padding(.trailing, 20)
                     }
                 }
 
                 if info.ImpairedAccess?.InductionLoop == "true" {
                     LabeledContent("Induction Loop", value: "Yes")
+                        .padding(.trailing, 20)
                 }
 
                 facilityRow("Wheelchair Available", icon: "figure.roll", available: info.ImpairedAccess?.WheelchairsAvailable)
@@ -306,7 +334,7 @@ struct StationInfoView: View {
                     if hasNote || hasHours {
                         DisclosureGroup {
                             if let note = staff.Annotation?.Note {
-                                Text(stripHTML(note))
+                                Text(richText(note))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -333,7 +361,7 @@ struct StationInfoView: View {
                     if hasNote || hasPhone || hasUrl {
                         DisclosureGroup {
                             if let note = helpline.Annotation?.Note {
-                                Text(stripHTML(note))
+                                Text(richText(note))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -343,11 +371,13 @@ struct StationInfoView: View {
                                     LabeledContent("Phone", value: phone)
                                 }
                                 .font(.caption)
+                                .copyable(phone)
                             }
                             if let contactNote = helpline.ContactDetails?.Annotation?.Note {
-                                Text(stripHTML(contactNote))
+                                Text(richText(contactNote))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+                                    .copyable(stripHTML(contactNote))
                             }
                             if let website = helpline.ContactDetails?.Url,
                                let url = URL(string: website) {
@@ -359,6 +389,7 @@ struct StationInfoView: View {
                                     }
                                 }
                                 .font(.caption)
+                                .copyable(website)
                             }
                         } label: {
                             Label("Assisted Travel Helpline", systemImage: "phone.arrow.right")
@@ -385,12 +416,12 @@ struct StationInfoView: View {
                     if hasExtra {
                         DisclosureGroup {
                             if let location = info.Interchange?.CycleStorageLocation {
-                                Text(stripHTML(location))
+                                Text(richText(location))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
                             if let note = info.Interchange?.CycleStorageNote?.Note {
-                                Text(stripHTML(note))
+                                Text(richText(note))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -451,6 +482,7 @@ struct StationInfoView: View {
                                 if let op = carPark.Operator {
                                     LabeledContent("Operator", value: op)
                                         .font(.caption)
+                                        .copyable(op)
                                 }
                                 if let phone = carPark.ContactDetails?.PrimaryTelephoneNumber?.TelNationalNumber,
                                    let url = makePhoneURL(phone) {
@@ -458,6 +490,7 @@ struct StationInfoView: View {
                                         LabeledContent("Phone", value: phone)
                                     }
                                     .font(.caption)
+                                    .copyable(phone)
                                 }
                                 if let website = carPark.ContactDetails?.Url,
                                    let url = URL(string: website) {
@@ -469,6 +502,7 @@ struct StationInfoView: View {
                                         }
                                     }
                                     .font(.caption)
+                                    .copyable(website)
                                 }
                                 if let hours = carPark.Open?.DayAndTimeAvailability {
                                     ForEach(Array(hours.items.enumerated()), id: \.offset) { _, entry in
@@ -476,6 +510,7 @@ struct StationInfoView: View {
                                            let time = entry.OpeningHours?.formatted, !time.isEmpty {
                                             LabeledContent(days, value: time)
                                                 .font(.caption)
+                                                .copyable(time)
                                         }
                                     }
                                 }
@@ -521,6 +556,7 @@ struct StationInfoView: View {
             Section {
                 if let zone = info.Fares?.Travelcard?.TravelcardZone {
                     LabeledContent("Travelcard Zone", value: zone)
+                        .copyable(zone)
                 }
 
                 if info.Fares?.PrepurchaseCollection == "true" {
@@ -533,13 +569,13 @@ struct StationInfoView: View {
                     LabeledContent("Oyster", value: "Yes")
                 }
 
-                if let oysterTopup = info.Fares?.OysterTopup, oysterTopup == "true" {
+                if info.Fares?.OysterTopup == "true" {
                     LabeledContent("Oyster Top-up", value: "Yes")
                 }
-                if let oysterValidator = info.Fares?.OysterValidator, oysterValidator == "true" {
+                if info.Fares?.OysterValidator == "true" {
                     LabeledContent("Oyster Validator", value: "Yes")
                 }
-                if let smartcardTopup = info.Fares?.SmartcardTopup, smartcardTopup == "true" {
+                if info.Fares?.SmartcardTopup == "true" {
                     LabeledContent("Smartcard Top-up", value: "Yes")
                 }
                 if let comments = info.Fares?.SmartcardComments?.Note {
@@ -548,18 +584,20 @@ struct StationInfoView: View {
                         Text(cleaned)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .copyable(cleaned)
                     }
                 }
 
                 if let penalty = info.Fares?.PenaltyFares?.Note {
-                    Text(stripHTML(penalty))
+                    Text(richText(penalty))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .copyable(stripHTML(penalty))
                 }
             } header: {
                 Label("Fares", systemImage: "creditcard")
             }
-            } // end Group 2
+            } // end Group 3
         }
         .tint(.primary)
     }
@@ -567,7 +605,7 @@ struct StationInfoView: View {
     // MARK: - Helpers
 
     @ViewBuilder
-    private func facilityRow(_ name: String, icon: String, available: AvailableField?) -> some View {
+    private func facilityRow(_ name: String, icon: String, available: AvailableField?, hasDisclosureInSection: Bool = true) -> some View {
         if let field = available {
             if let note = field.noteText.map({ stripHTML($0) }), !note.isEmpty {
                 DisclosureGroup {
@@ -586,6 +624,7 @@ struct StationInfoView: View {
                 LabeledContent {
                     Image(systemName: field.isAvailable ? "checkmark.circle.fill" : "xmark.circle")
                         .foregroundStyle(field.isAvailable ? .green : .secondary)
+                        .padding(.trailing, hasDisclosureInSection ? 20 : 0)
                 } label: {
                     Label(name, systemImage: icon)
                 }
@@ -613,6 +652,7 @@ struct StationInfoView: View {
             Link(destination: url) {
                 LabeledContent("Phone", value: phone)
             }
+            .copyable(phone)
         }
 
         if let website = service.ContactDetails?.Url,
@@ -624,6 +664,7 @@ struct StationInfoView: View {
                         .truncationMode(.middle)
                 }
             }
+            .copyable(website)
         }
 
         if let hours = service.Open?.Annotation?.Note {
@@ -632,6 +673,7 @@ struct StationInfoView: View {
                 Text(cleaned)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .copyable(cleaned)
             }
         }
 
@@ -640,6 +682,7 @@ struct StationInfoView: View {
                 if let days = entry.DayTypes?.description,
                    let time = entry.OpeningHours?.formatted, !time.isEmpty {
                     LabeledContent(days, value: time)
+                        .copyable(time)
                 }
             }
         }
@@ -672,15 +715,22 @@ struct StationInfoView: View {
     }
 
     private func stripHTML(_ html: String) -> String {
+        return String(richText(html).characters)
+    }
+
+    private func richText(_ html: String) -> AttributedString {
         var text = html
         // Decode HTML entities first
         text = text.replacingOccurrences(of: "&lt;", with: "<")
         text = text.replacingOccurrences(of: "&gt;", with: ">")
         text = text.replacingOccurrences(of: "&amp;", with: "&")
         text = text.replacingOccurrences(of: "&quot;", with: "\"")
+        // Convert <strong> to markdown bold
+        text = text.replacingOccurrences(of: "<strong[^>]*>", with: "**", options: .regularExpression)
+        text = text.replacingOccurrences(of: "</strong>", with: "**", options: .caseInsensitive)
         // Block-level elements to newlines
         text = text.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
-        text = text.replacingOccurrences(of: "</p>", with: "\n", options: .caseInsensitive)
+        text = text.replacingOccurrences(of: "</p>", with: "\n\n", options: .caseInsensitive)
         text = text.replacingOccurrences(of: "</h[1-6]>", with: "\n", options: .regularExpression)
         text = text.replacingOccurrences(of: "</li>", with: "\n", options: .caseInsensitive)
         text = text.replacingOccurrences(of: "<li[^>]*>", with: "• ", options: .regularExpression)
@@ -688,7 +738,12 @@ struct StationInfoView: View {
         text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
         // Collapse multiple blank lines
         text = text.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Parse as markdown to get bold styling
+        if let attributed = try? AttributedString(markdown: trimmed, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+            return attributed
+        }
+        return AttributedString(trimmed)
     }
 
     private func extractPhoneNumber(_ html: String?) -> String? {
@@ -724,11 +779,36 @@ struct StationInfoView: View {
     private func loadInfo() async {
         do {
             let result = try await StationViewModel().fetchStationInfo(crs: crs)
+            print("Decoded \(crs): operator=\(result.StationOperator ?? "nil"), infoSystems=\(result.InformationSystems != nil)")
             info = result
             errorMessage = nil
         } catch {
             errorMessage = "Failed to load station information"
         }
         isLoading = false
+    }
+
+    private func copyToClipboard(_ text: String) {
+        UIPasteboard.general.string = text
+    }
+}
+
+private struct CopyableModifier: ViewModifier {
+    let value: String
+
+    func body(content: Content) -> some View {
+        content.contextMenu {
+            Button {
+                UIPasteboard.general.string = value
+            } label: {
+                Label("Copy", systemImage: "doc.on.doc")
+            }
+        }
+    }
+}
+
+extension View {
+    func copyable(_ value: String) -> some View {
+        modifier(CopyableModifier(value: value))
     }
 }

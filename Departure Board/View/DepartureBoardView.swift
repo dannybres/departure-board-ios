@@ -16,6 +16,7 @@ struct DepartureBoardView: View {
     
     let station: Station
     var initialBoardType: BoardType = .departures
+    @Binding var navigationPath: NavigationPath
 
     // MARK: - State
     @State private var board: DepartureBoard?
@@ -24,9 +25,10 @@ struct DepartureBoardView: View {
     @State private var errorMessage: String?
     @State private var selectedBoard: BoardType = .departures
 
-    init(station: Station, initialBoardType: BoardType = .departures) {
+    init(station: Station, initialBoardType: BoardType = .departures, navigationPath: Binding<NavigationPath>) {
         self.station = station
         self.initialBoardType = initialBoardType
+        self._navigationPath = navigationPath
         _selectedBoard = State(initialValue: initialBoardType)
     }
     
@@ -98,7 +100,8 @@ struct DepartureBoardView: View {
         .navigationDestination(for: Service.self) { service in
             ServiceDetailView(
                 service: service,
-                boardType: selectedBoard
+                boardType: selectedBoard,
+                navigationPath: $navigationPath
             )
         }
         .onChange(of: selectedBoard) {

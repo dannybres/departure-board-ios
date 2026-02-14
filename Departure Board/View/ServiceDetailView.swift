@@ -11,11 +11,13 @@ struct ServiceDetailView: View {
 
     let service: Service
     let boardType: BoardType
+    @Binding var navigationPath: NavigationPath
 
     @State private var detail: ServiceDetail?
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var infoPanelExpanded = false
+    @State private var stationInfoCrs: String?
 
     var body: some View {
         Group {
@@ -44,6 +46,11 @@ struct ServiceDetailView: View {
         }
         .refreshable {
             await loadDetail(showLoading: false)
+        }
+        .sheet(item: $stationInfoCrs) { crs in
+            StationInfoView(crs: crs) {
+                stationInfoCrs = nil
+            }
         }
     }
 
@@ -144,16 +151,25 @@ struct ServiceDetailView: View {
                         isCurrent: false,
                         isPast: isPast
                     )
+                    .contextMenu {
+                        callingPointContextMenu(crs: point.crs, name: point.locationName)
+                    }
                 }
             }
 
             // Current station
             currentStationRow(detail)
+                .contextMenu {
+                    callingPointContextMenu(crs: detail.crs, name: detail.locationName)
+                }
 
             // Subsequent calling points
             if let subsequent = detail.subsequentCallingPoints?.callingPointList {
                 ForEach(subsequent.flatMap(\.callingPoint)) { point in
                     callingPointRow(point, isCurrent: false, isPast: false)
+                        .contextMenu {
+                            callingPointContextMenu(crs: point.crs, name: point.locationName)
+                        }
                 }
             }
         } header: {
@@ -265,5 +281,37 @@ struct ServiceDetailView: View {
             errorMessage = "Failed to load service details"
         }
         isLoading = false
+    }
+
+    private func stationFromCache(crs: String, name: String) -> Station? {
+        if let station = StationCache.load()?.first(where: { $0.crsCode == crs }) {
+            return station
+        }
+        return nil
+    }
+
+    @ViewBuilder
+    private func callingPointContextMenu(crs: String, name: String) -> some View {
+        if let station = stationFromCache(crs: crs, name: name) {
+            Button {
+                navigationPath.append(StationDestination(station: station, boardType: .departures))
+            } label: {
+                Label("Show Departures", systemImage: "arrow.up.right")
+            }
+
+            Button {
+                navigationPath.append(StationDestination(station: station, boardType: .arrivals))
+            } label: {
+                Label("Show Arrivals", systemImage: "arrow.down.left")
+            }
+
+            Divider()
+        }
+
+        Button {
+            stationInfoCrs = crs
+        } label: {
+            Label("Station Information", systemImage: "info.circle")
+        }
     }
 }

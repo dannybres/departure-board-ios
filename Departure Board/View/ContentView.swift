@@ -9,9 +9,14 @@ import SwiftUI
 import CoreLocation
 
 
-struct StationDestination: Hashable {
+struct StationDestination: Hashable, Identifiable {
     let station: Station
     let boardType: BoardType
+    var id: String { "\(station.crsCode)-\(boardType.rawValue)" }
+}
+
+extension String: @retroactive Identifiable {
+    public var id: String { self }
 }
 
 struct ContentView: View {
@@ -24,6 +29,7 @@ struct ContentView: View {
     @State private var showSettings = false
     @State private var isEditingFavourites = false
     @State private var hasPushedNearbyStation = false
+    @State private var stationInfoCrs: String?
     @AppStorage("favouriteStations") private var favouritesData: Data = Data()
     @AppStorage("nearbyStationCount") private var nearbyCount: Int = 10
     @AppStorage("mapsProvider") private var mapsProvider: String = "apple"
@@ -124,11 +130,16 @@ struct ContentView: View {
                             }
                     }
                 }
+                .sheet(item: $stationInfoCrs) { crs in
+                    StationInfoView(crs: crs) {
+                        stationInfoCrs = nil
+                    }
+                }
                 .navigationDestination(for: Station.self) { station in
-                    DepartureBoardView(station: station)
+                    DepartureBoardView(station: station, navigationPath: $navigationPath)
                 }
                 .navigationDestination(for: StationDestination.self) { dest in
-                    DepartureBoardView(station: dest.station, initialBoardType: dest.boardType)
+                    DepartureBoardView(station: dest.station, initialBoardType: dest.boardType, navigationPath: $navigationPath)
                 }
                 .onAppear { locationManager.refresh() }
                 .onChange(of: scenePhase) {
@@ -296,6 +307,12 @@ struct ContentView: View {
             openInMaps(station)
         } label: {
             Label("Open in Maps", systemImage: "map")
+        }
+
+        Button {
+            stationInfoCrs = station.crsCode
+        } label: {
+            Label("Station Information", systemImage: "info.circle")
         }
 
     }
