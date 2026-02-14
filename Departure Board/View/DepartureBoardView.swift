@@ -68,26 +68,20 @@ struct DepartureBoardView: View {
                 .refreshable {
                     await loadBoard(type: selectedBoard)
                 }
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button {
-                            // Action here
-                            showInfo = true
-                        } label: {
-                            Image(systemName: "info.circle")
-                        }
-                    }
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showInfo = true
+                } label: {
+                    Image(systemName: "info.circle")
                 }
-                .sheet(isPresented: $showInfo) {
-                    NavigationStack {
-                        Text("Hello")
-                            .toolbar {
-                                ToolbarItem(placement: .topBarTrailing) {
-                                    Button("Done") { showInfo = false }
-                                }
-                            }
-                    }
-                }
+            }
+        }
+        .sheet(isPresented: $showInfo) {
+            StationInfoView(crs: station.crsCode) {
+                showInfo = false
             }
         }
         .safeAreaInset(edge: .bottom, alignment: .leading) {

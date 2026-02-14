@@ -59,6 +59,21 @@ class StationViewModel: ObservableObject {
         }
     }
 
+    func fetchStationInfo(crs: String) async throws -> StationInfo {
+        guard let url = URL(string: "https://rail.breslan.co.uk/api/station/\(crs)") else {
+            throw URLError(.badURL)
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+
+        return try JSONDecoder().decode(StationInfo.self, from: data)
+    }
+
     func fetchServiceDetail(serviceID: String) async throws -> ServiceDetail {
         guard let url = URL(string: "https://rail.breslan.co.uk/api/service/\(serviceID)") else {
             throw URLError(.badURL)
