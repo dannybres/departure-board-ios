@@ -21,6 +21,8 @@ extension String: @retroactive Identifiable {
 
 struct ContentView: View {
 
+    @Binding var deepLink: DeepLink?
+
     @StateObject private var viewModel = StationViewModel()
     @StateObject private var locationManager = LocationManager()
     @Environment(\.scenePhase) private var scenePhase
@@ -167,6 +169,11 @@ struct ContentView: View {
                         }
                     }
                 }
+                .onChange(of: deepLink) {
+                    guard let link = deepLink else { return }
+                    deepLink = nil
+                    handleDeepLink(link)
+                }
 
         }
 
@@ -257,6 +264,32 @@ struct ContentView: View {
         .environment(\.editMode, isEditingFavourites ? .constant(.active) : .constant(.inactive))
         .refreshable { viewModel.reloadFromCache() }
         .searchable(text: $searchText, prompt: "Search stations")
+    }
+
+    private func handleDeepLink(_ link: DeepLink) {
+        let crs: String
+        switch link {
+        case .departures(let c): crs = c
+        case .arrivals(let c): crs = c
+        case .station(let c): crs = c
+        }
+
+        guard let station = StationCache.load()?.first(where: { $0.crsCode == crs }) else { return }
+
+        // Reset navigation to root first
+        navigationPath = NavigationPath()
+
+        switch link {
+        case .departures:
+            hasPushedNearbyStation = true
+            navigationPath.append(StationDestination(station: station, boardType: .departures))
+        case .arrivals:
+            hasPushedNearbyStation = true
+            navigationPath.append(StationDestination(station: station, boardType: .arrivals))
+        case .station:
+            hasPushedNearbyStation = true
+            stationInfoCrs = station.crsCode
+        }
     }
 
     private func sectionHeader(_ title: String, icon: String) -> some View {
