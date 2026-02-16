@@ -114,6 +114,7 @@ struct ServiceDetailView: View {
     @State private var errorMessage: String?
     @State private var stationInfoCrs: String?
     @State private var showInfoSheet = false
+    @State private var selectedMapPin: String?
 
     var body: some View {
         Group {
@@ -205,32 +206,24 @@ struct ServiceDetailView: View {
                     }
 
                     if let sta = detail.sta {
-                        HStack {
-                            Text("Arrival")
-                            Spacer()
-                            Text(sta)
-                            if let ata = detail.ata {
-                                Text("(\(ata))")
-                                    .foregroundStyle(timeColor(scheduled: sta, actual: ata))
-                            } else if let eta = detail.eta {
-                                Text("(\(eta))")
-                                    .foregroundStyle(timeColor(scheduled: sta, actual: eta))
-                            }
+                        LabeledContent("Scheduled Arrival", value: sta)
+                        if let ata = detail.ata, ata.lowercased() != "on time", ata != sta {
+                            LabeledContent("Actual Arrival", value: ata)
+                                .foregroundStyle(timeColor(scheduled: sta, actual: ata))
+                        } else if let eta = detail.eta, eta.lowercased() != "on time", eta != sta {
+                            LabeledContent("Expected Arrival", value: eta)
+                                .foregroundStyle(timeColor(scheduled: sta, actual: eta))
                         }
                     }
 
                     if let std = detail.std {
-                        HStack {
-                            Text("Departure")
-                            Spacer()
-                            Text(std)
-                            if let atd = detail.atd {
-                                Text("(\(atd))")
-                                    .foregroundStyle(timeColor(scheduled: std, actual: atd))
-                            } else if let etd = detail.etd {
-                                Text("(\(etd))")
-                                    .foregroundStyle(timeColor(scheduled: std, actual: etd))
-                            }
+                        LabeledContent("Scheduled Departure", value: std)
+                        if let atd = detail.atd, atd.lowercased() != "on time", atd != std {
+                            LabeledContent("Actual Departure", value: atd)
+                                .foregroundStyle(timeColor(scheduled: std, actual: atd))
+                        } else if let etd = detail.etd, etd.lowercased() != "on time", etd != std {
+                            LabeledContent("Expected Departure", value: etd)
+                                .foregroundStyle(timeColor(scheduled: std, actual: etd))
                         }
                     }
 
@@ -247,7 +240,7 @@ struct ServiceDetailView: View {
                     }
                 }
             }
-            .navigationTitle(detail.locationName)
+            .navigationTitle(navigationTitleText)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -259,28 +252,111 @@ struct ServiceDetailView: View {
 
     // MARK: - Route Map
 
-    @ViewBuilder
-    private func routeMapSection(_ detail: ServiceDetail) -> some View {
+    private struct MapPin: Identifiable {
+        let id: String
+        let coordinate: CLLocationCoordinate2D
+        let point: RoutePoint
+    }
+
+    private func buildMapData(_ detail: ServiceDetail) -> (pins: [MapPin], polylines: [[CLLocationCoordinate2D]]) {
         let stations = StationCache.load() ?? []
-        let allPoints = routePoints(detail)
-        let coordinates: [(CLLocationCoordinate2D, String, TimelineState)] = allPoints.compactMap { point in
-            guard let station = stations.first(where: { $0.crsCode == point.crs }) else { return nil }
-            return (CLLocationCoordinate2D(latitude: station.latitude, longitude: station.longitude), point.name, point.state)
+        let branches = routePointBranches(detail)
+
+        var seenCrs = Set<String>()
+        var allPins: [MapPin] = []
+        for branch in branches {
+            for point in branch {
+                guard !seenCrs.contains(point.crs),
+                      let station = stations.first(where: { $0.crsCode == point.crs }) else { continue }
+                seenCrs.insert(point.crs)
+                allPins.append(MapPin(id: point.crs, coordinate: CLLocationCoordinate2D(latitude: station.latitude, longitude: station.longitude), point: point))
+            }
         }
 
-        if coordinates.count >= 2 {
+        let branchCoords: [[CLLocationCoordinate2D]] = branches.map { branch in
+            branch.compactMap { point in
+                guard let station = stations.first(where: { $0.crsCode == point.crs }) else { return nil }
+                return CLLocationCoordinate2D(latitude: station.latitude, longitude: station.longitude)
+            }
+        }
+
+        return (allPins, branchCoords)
+    }
+
+    @ViewBuilder
+    private func routeMapSection(_ detail: ServiceDetail) -> some View {
+        let mapData = buildMapData(detail)
+
+        if mapData.pins.count >= 2 {
             Section {
-                Map {
-                    ForEach(Array(coordinates.enumerated()), id: \.offset) { _, item in
-                        Marker(item.1, systemImage: "tram.fill", coordinate: item.0)
-                            .tint(markerColor(for: item.2))
+                Map(selection: $selectedMapPin) {
+                    ForEach(mapData.pins) { pin in
+                        Marker(pin.point.name, systemImage: "tram.fill", coordinate: pin.coordinate)
+                            .tint(markerColor(for: pin.point.state))
+                            .tag(pin.id)
                     }
-                    MapPolyline(coordinates: coordinates.map(\.0))
-                        .stroke(Theme.brand, lineWidth: 3)
+                    ForEach(Array(mapData.polylines.enumerated()), id: \.offset) { _, coords in
+                        MapPolyline(coordinates: coords)
+                            .stroke(Theme.brand, lineWidth: 3)
+                    }
                 }
                 .frame(height: 220)
                 .listRowInsets(EdgeInsets())
+
+                if let selectedId = selectedMapPin,
+                   let pin = mapData.pins.first(where: { $0.id == selectedId }) {
+                    pinDetailRow(pin.point)
+                }
             }
+        }
+    }
+
+    private func pinDetailRow(_ point: RoutePoint) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(point.name)
+                    .font(.subheadline.weight(.semibold))
+
+                HStack(spacing: 8) {
+                    if let scheduled = point.scheduled {
+                        Text(scheduled)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if point.cancelled {
+                        Text("Cancelled")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    } else if let actual = point.actual {
+                        Text(actual == "On time" ? "On time" : actual)
+                            .font(.caption)
+                            .foregroundStyle(actual == "On time" ? Color.primary : Color.orange)
+                    } else if let expected = point.expected {
+                        Text(expected == "On time" ? "On time" : expected)
+                            .font(.caption)
+                            .foregroundStyle(expected == "On time" ? Color.primary : Color.orange)
+                    }
+
+                    if let platform = point.platform {
+                        Text("Plat \(platform)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Spacer()
+
+            Text(point.crs)
+                .font(Theme.crsFont)
+                .foregroundStyle(Theme.brand)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Theme.brandSubtle, in: RoundedRectangle(cornerRadius: 4))
+        }
+        .contextMenu {
+            callingPointContextMenu(crs: point.crs, name: point.name)
         }
     }
 
@@ -288,28 +364,38 @@ struct ServiceDetailView: View {
         let crs: String
         let name: String
         let state: TimelineState
+        let scheduled: String?
+        let actual: String?
+        let expected: String?
+        let platform: String?
+        let cancelled: Bool
     }
 
-    private func routePoints(_ detail: ServiceDetail) -> [RoutePoint] {
-        var points: [RoutePoint] = []
+    private func routePointBranches(_ detail: ServiceDetail) -> [[RoutePoint]] {
+        var shared: [RoutePoint] = []
 
         if let previous = detail.previousCallingPoints?.callingPointList {
             for point in previous.flatMap(\.callingPoint) {
                 let state: TimelineState = point.cancelled ? .cancelled : (point.at != nil ? .past : .future)
-                points.append(RoutePoint(crs: point.crs, name: point.locationName, state: state))
+                shared.append(RoutePoint(crs: point.crs, name: point.locationName, state: state, scheduled: point.st, actual: point.at, expected: point.et, platform: nil, cancelled: point.cancelled))
             }
         }
 
-        points.append(RoutePoint(crs: detail.crs, name: detail.locationName, state: .current))
+        shared.append(RoutePoint(crs: detail.crs, name: detail.locationName, state: .current, scheduled: detail.sta ?? detail.std, actual: detail.ata ?? detail.atd, expected: detail.eta ?? detail.etd, platform: detail.platform, cancelled: false))
 
-        if let subsequent = detail.subsequentCallingPoints?.callingPointList {
-            for point in subsequent.flatMap(\.callingPoint) {
+        let branches = detail.subsequentCallingPoints?.callingPointList ?? []
+        if branches.isEmpty {
+            return [shared]
+        }
+
+        return branches.map { list in
+            var branch = shared
+            for point in list.callingPoint {
                 let state: TimelineState = point.cancelled ? .cancelled : .future
-                points.append(RoutePoint(crs: point.crs, name: point.locationName, state: state))
+                branch.append(RoutePoint(crs: point.crs, name: point.locationName, state: state, scheduled: point.st, actual: point.at, expected: point.et, platform: nil, cancelled: point.cancelled))
             }
+            return branch
         }
-
-        return points
     }
 
     private func markerColor(for state: TimelineState) -> Color {
@@ -323,12 +409,22 @@ struct ServiceDetailView: View {
 
     // MARK: - Calling Points (Timeline)
 
+    private var subsequentBranches: [[CallingPoint]] {
+        detail?.subsequentCallingPoints?.callingPointList.map(\.callingPoint) ?? []
+    }
+
+    private var isSplitService: Bool {
+        subsequentBranches.count > 1
+    }
+
     @ViewBuilder
     private func callingPointsList(_ detail: ServiceDetail) -> some View {
+        // Previous + current station
+        let preRows = buildPreCurrentRows(detail)
         Section {
-            let allPoints = buildTimelineRows(detail)
-            ForEach(Array(allPoints.enumerated()), id: \.offset) { index, row in
-                let position: TimelinePosition = index == 0 ? .first : (index == allPoints.count - 1 ? .last : .middle)
+            ForEach(Array(preRows.enumerated()), id: \.offset) { index, row in
+                let isLast = isSplitService ? false : (index == preRows.count - 1 && subsequentBranches.isEmpty)
+                let position: TimelinePosition = index == 0 ? .first : (isLast ? .last : .middle)
 
                 switch row {
                 case .previous(let point):
@@ -350,7 +446,15 @@ struct ServiceDetailView: View {
                         callingPointContextMenu(crs: d.crs, name: d.locationName)
                     }
 
-                case .subsequent(let point):
+                case .subsequent:
+                    EmptyView()
+                }
+            }
+
+            // Single branch — continue in same section
+            if !isSplitService, let branch = subsequentBranches.first {
+                ForEach(Array(branch.enumerated()), id: \.offset) { index, point in
+                    let position: TimelinePosition = index == branch.count - 1 ? .last : .middle
                     let state: TimelineState = point.cancelled ? .cancelled : .future
                     timelineRow(position: position, state: state) {
                         callingPointContent(point, isPast: false)
@@ -366,6 +470,30 @@ struct ServiceDetailView: View {
                 .foregroundStyle(Theme.brand)
                 .textCase(nil)
         }
+
+        // Split service — each branch in its own section
+        if isSplitService {
+            ForEach(Array(subsequentBranches.enumerated()), id: \.offset) { branchIndex, branch in
+                let destination = branch.last?.locationName ?? "Unknown"
+                Section {
+                    ForEach(Array(branch.enumerated()), id: \.offset) { index, point in
+                        let position: TimelinePosition = index == 0 ? .first : (index == branch.count - 1 ? .last : .middle)
+                        let state: TimelineState = point.cancelled ? .cancelled : .future
+                        timelineRow(position: position, state: state) {
+                            callingPointContent(point, isPast: false)
+                        }
+                        .contextMenu {
+                            callingPointContextMenu(crs: point.crs, name: point.locationName)
+                        }
+                    }
+                } header: {
+                    Label("to \(destination)", systemImage: "arrow.triangle.branch")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Theme.brand)
+                        .textCase(nil)
+                }
+            }
+        }
     }
 
     private enum TimelineRow {
@@ -374,7 +502,7 @@ struct ServiceDetailView: View {
         case subsequent(CallingPoint)
     }
 
-    private func buildTimelineRows(_ detail: ServiceDetail) -> [TimelineRow] {
+    private func buildPreCurrentRows(_ detail: ServiceDetail) -> [TimelineRow] {
         var rows: [TimelineRow] = []
 
         if let previous = detail.previousCallingPoints?.callingPointList {
@@ -384,13 +512,6 @@ struct ServiceDetailView: View {
         }
 
         rows.append(.current(detail))
-
-        if let subsequent = detail.subsequentCallingPoints?.callingPointList {
-            for point in subsequent.flatMap(\.callingPoint) {
-                rows.append(.subsequent(point))
-            }
-        }
-
         return rows
     }
 
@@ -503,7 +624,7 @@ struct ServiceDetailView: View {
     private func loadDetail(showLoading: Bool = false) async {
         if showLoading { isLoading = true }
         do {
-            let result = try await StationViewModel().fetchServiceDetail(serviceID: service.serviceID)
+            let result = try await StationViewModel.fetchServiceDetail(serviceID: service.serviceID)
             detail = result
             errorMessage = nil
         } catch {

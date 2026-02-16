@@ -36,6 +36,10 @@ enum DeepLink: Equatable {
 struct Departure_BoardApp: App {
     @State private var pendingDeepLink: DeepLink?
 
+    init() {
+        SharedDefaults.migrateIfNeeded()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView(deepLink: $pendingDeepLink)

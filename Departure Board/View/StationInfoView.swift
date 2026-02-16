@@ -19,22 +19,118 @@ struct StationInfoView: View {
     @State private var errorMessage: String?
     @AppStorage("mapsProvider") private var mapsProvider: String = "apple"
 
+    private var cachedStation: Station? {
+        StationCache.load()?.first(where: { $0.crsCode == crs })
+    }
+
     var body: some View {
         NavigationStack {
-            Group {
-                if isLoading {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+            List {
+                // Navigation buttons — available immediately
+                if let onNavigate {
+                    Section {
+                        Button {
+                            onNavigate(.departures)
+                        } label: {
+                            Label("Show Departures", systemImage: "arrow.up.right")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .tint(Theme.brand)
+
+                        Button {
+                            onNavigate(.arrivals)
+                        } label: {
+                            Label("Show Arrivals", systemImage: "arrow.down.left")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .tint(Theme.brand)
+                    }
+                }
+
+                // Map — from cache immediately, upgraded with API data when available
+                if let lat = mapLatitude, let lon = mapLongitude {
+                    Section {
+                        Map(initialPosition: .region(MKCoordinateRegion(
+                            center: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                            span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005)
+                        ))) {
+                            Marker(mapName, systemImage: "tram.fill", coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon))
+                                .tint(Theme.brand)
+                        }
+                        .frame(height: 180)
+                        .listRowInsets(EdgeInsets())
+                        .onTapGesture {
+                            openInMaps(name: mapName, lat: lat, lon: lon)
+                        }
+                    }
+                }
+
+                // Station section — CRS immediately, API details appended when loaded
+                Section {
+                    LabeledContent("CRS Code", value: crs)
+                        .copyable(crs)
+
+                    if let info {
+                        if let op = info.StationOperator {
+                            LabeledContent("Operator", value: op)
+                                .copyable(op)
+                        }
+
+                        if let address = formattedAddress(info) {
+                            if let lat = Double(info.Latitude ?? ""),
+                               let lon = Double(info.Longitude ?? "") {
+                                Button {
+                                    openInMaps(name: info.Name, lat: lat, lon: lon)
+                                } label: {
+                                    LabeledContent("Address") {
+                                        Text(address)
+                                            .multilineTextAlignment(.trailing)
+                                    }
+                                }
+                            } else {
+                                LabeledContent("Address") {
+                                    Text(address)
+                                        .multilineTextAlignment(.trailing)
+                                }
+                                .copyable(address)
+                            }
+                        }
+
+                        if let staffing = info.Staffing?.StaffingLevel {
+                            LabeledContent("Staffing", value: formatStaffing(staffing))
+                                .copyable(formatStaffing(staffing))
+                        }
+
+                        if info.Staffing?.ClosedCircuitTelevision?.Overall == "true" {
+                            LabeledContent("CCTV", value: "Yes")
+                        }
+                    }
+                } header: {
+                    infoSectionHeader("Station", icon: "building.2")
+                }
+
+                // API-loaded content
+                if let info {
+                    stationInfoSections(info)
                 } else if let errorMessage {
-                    Text(errorMessage)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding()
-                } else if let info {
-                    stationInfoList(info)
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                } else if isLoading {
+                    Section {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                            Spacer()
+                        }
+                        .listRowBackground(Color.clear)
+                    }
                 }
             }
-            .navigationTitle(info?.Name ?? crs)
+            .tint(.primary)
+            .navigationTitle(info?.Name ?? cachedStation?.name ?? crs)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -47,50 +143,24 @@ struct StationInfoView: View {
         }
     }
 
-    private func stationInfoList(_ info: StationInfo) -> some View {
-        List {
-            // Navigation buttons
-            if let onNavigate {
-                Section {
-                    Button {
-                        onNavigate(.departures)
-                    } label: {
-                        Label("Show Departures", systemImage: "arrow.up.right")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .tint(Theme.brand)
+    private var mapLatitude: Double? {
+        if let info, let lat = Double(info.Latitude ?? "") { return lat }
+        return cachedStation?.latitude
+    }
 
-                    Button {
-                        onNavigate(.arrivals)
-                    } label: {
-                        Label("Show Arrivals", systemImage: "arrow.down.left")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .tint(Theme.brand)
-                }
-            }
+    private var mapLongitude: Double? {
+        if let info, let lon = Double(info.Longitude ?? "") { return lon }
+        return cachedStation?.longitude
+    }
 
-            // Group 1: Map, Alerts, Station, InformationSystems, CustomerService
+    private var mapName: String {
+        info?.Name ?? cachedStation?.name ?? crs
+    }
+
+    @ViewBuilder
+    private func stationInfoSections(_ info: StationInfo) -> some View {
+            // Group 1: Alerts, InformationSystems, CustomerService
             Group {
-            // Map
-            if let lat = Double(info.Latitude ?? ""),
-               let lon = Double(info.Longitude ?? "") {
-                Section {
-                    Map(initialPosition: .region(MKCoordinateRegion(
-                        center: CLLocationCoordinate2D(latitude: lat, longitude: lon),
-                        span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005)
-                    ))) {
-                        Marker(info.Name, systemImage: "tram.fill", coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon))
-                            .tint(Theme.brand)
-                    }
-                    .frame(height: 180)
-                    .listRowInsets(EdgeInsets())
-                    .onTapGesture {
-                        openInMaps(name: info.Name, lat: lat, lon: lon)
-                    }
-                }
-            }
-
             // Alerts
             if let alerts = info.StationAlerts?.AlertText?.texts, !alerts.isEmpty {
                 Section {
@@ -104,49 +174,6 @@ struct StationInfoView: View {
                 } header: {
                     infoSectionHeader("Alerts", icon: "exclamationmark.triangle.fill")
                 }
-            }
-
-            // General
-            Section {
-                if let op = info.StationOperator {
-                    LabeledContent("Operator", value: op)
-                        .copyable(op)
-                }
-
-                LabeledContent("CRS Code", value: info.CrsCode)
-                    .copyable(info.CrsCode)
-
-                if let address = formattedAddress(info) {
-                    if let lat = Double(info.Latitude ?? ""),
-                       let lon = Double(info.Longitude ?? "") {
-                        Button {
-                            openInMaps(name: info.Name, lat: lat, lon: lon)
-                        } label: {
-                            LabeledContent("Address") {
-                                Text(address)
-                                    .multilineTextAlignment(.trailing)
-                            }
-                        }
-                    } else {
-                        LabeledContent("Address") {
-                            Text(address)
-                                .multilineTextAlignment(.trailing)
-                        }
-                        .copyable(address)
-                    }
-                }
-
-                if let staffing = info.Staffing?.StaffingLevel {
-                    LabeledContent("Staffing", value: formatStaffing(staffing))
-                        .copyable(formatStaffing(staffing))
-                }
-
-                if info.Staffing?.ClosedCircuitTelevision?.Overall == "true" {
-                    LabeledContent("CCTV", value: "Yes")
-                }
-
-            } header: {
-                infoSectionHeader("Station", icon: "building.2")
             }
 
             if info.InformationSystems != nil {
@@ -622,8 +649,6 @@ struct StationInfoView: View {
                 infoSectionHeader("Fares", icon: "creditcard")
             }
             } // end Group 3
-        }
-        .tint(.primary)
     }
 
     private func infoSectionHeader(_ title: String, icon: String) -> some View {
@@ -813,7 +838,7 @@ struct StationInfoView: View {
 
     private func loadInfo() async {
         do {
-            let result = try await StationViewModel().fetchStationInfo(crs: crs)
+            let result = try await StationViewModel.fetchStationInfo(crs: crs)
             print("Decoded \(crs): operator=\(result.StationOperator ?? "nil"), infoSystems=\(result.InformationSystems != nil)")
             info = result
             errorMessage = nil

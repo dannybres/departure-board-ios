@@ -59,7 +59,7 @@ class StationViewModel: ObservableObject {
         }
     }
 
-    func fetchStationInfo(crs: String) async throws -> StationInfo {
+    static func fetchStationInfo(crs: String) async throws -> StationInfo {
         guard let url = URL(string: "https://rail.breslan.co.uk/api/station/\(crs)") else {
             throw URLError(.badURL)
         }
@@ -74,7 +74,7 @@ class StationViewModel: ObservableObject {
         return try JSONDecoder().decode(StationInfo.self, from: data)
     }
 
-    func fetchServiceDetail(serviceID: String) async throws -> ServiceDetail {
+    static func fetchServiceDetail(serviceID: String) async throws -> ServiceDetail {
         guard let url = URL(string: "https://rail.breslan.co.uk/api/service/\(serviceID)") else {
             throw URLError(.badURL)
         }
@@ -89,7 +89,7 @@ class StationViewModel: ObservableObject {
         return try JSONDecoder().decode(ServiceDetail.self, from: data)
     }
 
-    func fetchBoard(
+    static func fetchBoard(
         for crs: String,
         type: BoardType = .departures,
         numRows: Int? = nil,

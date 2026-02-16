@@ -6,14 +6,80 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		173B79C12F437E95004C4874 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 173B79C02F437E95004C4874 /* WidgetKit.framework */; };
+		173B79C32F437E95004C4874 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 173B79C22F437E95004C4874 /* SwiftUI.framework */; };
+		173B79D42F437E98004C4874 /* DepartureBoardWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 173B79BE2F437E95004C4874 /* DepartureBoardWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		173B79D22F437E98004C4874 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 173B79802F3DCD9F004C4874 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 173B79BD2F437E95004C4874;
+			remoteInfo = DepartureBoardWidgetExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		173B79D92F437E98004C4874 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				173B79D42F437E98004C4874 /* DepartureBoardWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		173B79882F3DCD9F004C4874 /* Departure Board.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Departure Board.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		173B79BE2F437E95004C4874 /* DepartureBoardWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = DepartureBoardWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		173B79C02F437E95004C4874 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		173B79C22F437E95004C4874 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		173B79DA2F437EA3004C4874 /* DepartureBoardWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DepartureBoardWidgetExtension.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		173B79D52F437E98004C4874 /* Exceptions for "DepartureBoardWidget" folder in "DepartureBoardWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 173B79BD2F437E95004C4874 /* DepartureBoardWidgetExtension */;
+		};
+		173B79DE2F437FD5004C4874 /* Exceptions for "Departure Board" folder in "DepartureBoardWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Model/Board.swift,
+				Model/Station.swift,
+				SharedDefaults.swift,
+				StationCache.swift,
+				Theme.swift,
+			);
+			target = 173B79BD2F437E95004C4874 /* DepartureBoardWidgetExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		173B798A2F3DCD9F004C4874 /* Departure Board */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				173B79DE2F437FD5004C4874 /* Exceptions for "Departure Board" folder in "DepartureBoardWidgetExtension" target */,
+			);
 			path = "Departure Board";
+			sourceTree = "<group>";
+		};
+		173B79C42F437E95004C4874 /* DepartureBoardWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				173B79D52F437E98004C4874 /* Exceptions for "DepartureBoardWidget" folder in "DepartureBoardWidgetExtension" target */,
+			);
+			path = DepartureBoardWidget;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -26,13 +92,25 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		173B79BB2F437E95004C4874 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				173B79C32F437E95004C4874 /* SwiftUI.framework in Frameworks */,
+				173B79C12F437E95004C4874 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		173B797F2F3DCD9F004C4874 = {
 			isa = PBXGroup;
 			children = (
+				173B79DA2F437EA3004C4874 /* DepartureBoardWidgetExtension.entitlements */,
 				173B798A2F3DCD9F004C4874 /* Departure Board */,
+				173B79C42F437E95004C4874 /* DepartureBoardWidget */,
+				173B79BF2F437E95004C4874 /* Frameworks */,
 				173B79892F3DCD9F004C4874 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,8 +119,18 @@
 			isa = PBXGroup;
 			children = (
 				173B79882F3DCD9F004C4874 /* Departure Board.app */,
+				173B79BE2F437E95004C4874 /* DepartureBoardWidgetExtension.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		173B79BF2F437E95004C4874 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				173B79C02F437E95004C4874 /* WidgetKit.framework */,
+				173B79C22F437E95004C4874 /* SwiftUI.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -55,10 +143,12 @@
 				173B79842F3DCD9F004C4874 /* Sources */,
 				173B79852F3DCD9F004C4874 /* Frameworks */,
 				173B79862F3DCD9F004C4874 /* Resources */,
+				173B79D92F437E98004C4874 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				173B79D32F437E98004C4874 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				173B798A2F3DCD9F004C4874 /* Departure Board */,
@@ -69,6 +159,28 @@
 			productName = "Departure Board";
 			productReference = 173B79882F3DCD9F004C4874 /* Departure Board.app */;
 			productType = "com.apple.product-type.application";
+		};
+		173B79BD2F437E95004C4874 /* DepartureBoardWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 173B79D62F437E98004C4874 /* Build configuration list for PBXNativeTarget "DepartureBoardWidgetExtension" */;
+			buildPhases = (
+				173B79BA2F437E95004C4874 /* Sources */,
+				173B79BB2F437E95004C4874 /* Frameworks */,
+				173B79BC2F437E95004C4874 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				173B79C42F437E95004C4874 /* DepartureBoardWidget */,
+			);
+			name = DepartureBoardWidgetExtension;
+			packageProductDependencies = (
+			);
+			productName = DepartureBoardWidgetExtension;
+			productReference = 173B79BE2F437E95004C4874 /* DepartureBoardWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -81,6 +193,9 @@
 				LastUpgradeCheck = 2620;
 				TargetAttributes = {
 					173B79872F3DCD9F004C4874 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					173B79BD2F437E95004C4874 = {
 						CreatedOnToolsVersion = 26.2;
 					};
 				};
@@ -100,12 +215,20 @@
 			projectRoot = "";
 			targets = (
 				173B79872F3DCD9F004C4874 /* Departure Board */,
+				173B79BD2F437E95004C4874 /* DepartureBoardWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		173B79862F3DCD9F004C4874 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		173B79BC2F437E95004C4874 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +245,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		173B79BA2F437E95004C4874 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		173B79D32F437E98004C4874 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 173B79BD2F437E95004C4874 /* DepartureBoardWidgetExtension */;
+			targetProxy = 173B79D22F437E98004C4874 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		173B79912F3DCDA1004C4874 /* Debug */ = {
@@ -249,6 +387,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Departure Board/Departure Board.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = TT8922764P;
@@ -283,6 +422,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Departure Board/Departure Board.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = TT8922764P;
@@ -312,6 +452,68 @@
 			};
 			name = Release;
 		};
+		173B79D72F437E98004C4874 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = DepartureBoardWidgetExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TT8922764P;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = DepartureBoardWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = DepartureBoardWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.breslan.Departure-Board.DepartureBoardWidget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		173B79D82F437E98004C4874 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = DepartureBoardWidgetExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TT8922764P;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = DepartureBoardWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = DepartureBoardWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.breslan.Departure-Board.DepartureBoardWidget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -329,6 +531,15 @@
 			buildConfigurations = (
 				173B79942F3DCDA1004C4874 /* Debug */,
 				173B79952F3DCDA1004C4874 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		173B79D62F437E98004C4874 /* Build configuration list for PBXNativeTarget "DepartureBoardWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				173B79D72F437E98004C4874 /* Debug */,
+				173B79D82F437E98004C4874 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

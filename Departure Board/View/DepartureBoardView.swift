@@ -7,11 +7,6 @@
 
 import SwiftUI
 
-enum BoardType: String, CaseIterable {
-    case departures
-    case arrivals
-}
-
 struct DepartureBoardView: View {
 
     let station: Station
@@ -209,7 +204,7 @@ struct DepartureBoardView: View {
     private func loadBoard(type: BoardType, showLoading: Bool = false) async {
         if showLoading { isLoading = true }
         do {
-            let result = try await StationViewModel().fetchBoard(for: station.crsCode, type: type)
+            let result = try await StationViewModel.fetchBoard(for: station.crsCode, type: type)
             withAnimation(.easeInOut(duration: 0.3)) {
                 board = result
                 errorMessage = nil
@@ -231,11 +226,11 @@ struct DepartureRow: View {
     let boardType: BoardType
     @Environment(\.colorScheme) private var colorScheme
 
-    private var location: Location? {
+    private var locations: [Location] {
         if boardType == .arrivals {
-            return service.origin.location.first
+            return service.origin.location
         }
-        return service.destination.location.first
+        return service.destination.location
     }
 
     private var isCancelled: Bool {
@@ -255,7 +250,7 @@ struct DepartureRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(location?.locationName ?? "")
+                    Text(locations.map(\.locationName).joined(separator: " & "))
                         .font(.title3.weight(.semibold))
 
                     if isCancelled {
@@ -269,7 +264,8 @@ struct DepartureRow: View {
                     }
                 }
 
-                if let via = location?.via {
+                let uniqueVias = Array(Set(locations.compactMap(\.via)))
+                ForEach(uniqueVias, id: \.self) { via in
                     Text(via)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)

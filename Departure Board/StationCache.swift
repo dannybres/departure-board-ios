@@ -8,27 +8,35 @@
 import Foundation
 
 struct StationCache {
-    
-    private static let stationsKey = "cachedStations"
-    private static let lastRefreshKey = "stationsLastRefresh"
-    
+
+    private static let stationsKey = SharedDefaults.Keys.cachedStations
+    private static let lastRefreshKey = SharedDefaults.Keys.stationsLastRefresh
+    private static let defaults = SharedDefaults.shared
+    private static var inMemoryCache: [Station]?
+
     static func save(_ stations: [Station]) {
         let encoder = JSONEncoder()
         if let data = try? encoder.encode(stations) {
-            UserDefaults.standard.set(data, forKey: stationsKey)
-            UserDefaults.standard.set(Date(), forKey: lastRefreshKey)
+            defaults.set(data, forKey: stationsKey)
+            defaults.set(Date(), forKey: lastRefreshKey)
         }
+        inMemoryCache = stations
     }
-    
+
     static func load() -> [Station]? {
-        guard let data = UserDefaults.standard.data(forKey: stationsKey) else {
+        if let cached = inMemoryCache {
+            return cached
+        }
+        guard let data = defaults.data(forKey: stationsKey) else {
             return nil
         }
-        return try? JSONDecoder().decode([Station].self, from: data)
+        let decoded = try? JSONDecoder().decode([Station].self, from: data)
+        inMemoryCache = decoded
+        return decoded
     }
     
     static func lastRefreshDate() -> Date? {
-        UserDefaults.standard.object(forKey: lastRefreshKey) as? Date
+        defaults.object(forKey: lastRefreshKey) as? Date
     }
 
     static func isExpired(maxAge: TimeInterval = 86400) -> Bool {

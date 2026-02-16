@@ -32,7 +32,7 @@ struct ContentView: View {
     @State private var isEditingFavourites = false
     @State private var hasPushedNearbyStation = false
     @State private var stationInfoCrs: String?
-    @AppStorage("favouriteStations") private var favouritesData: Data = Data()
+    @AppStorage(SharedDefaults.Keys.favouriteStations, store: SharedDefaults.shared) private var favouritesData: Data = Data()
     @AppStorage("nearbyStationCount") private var nearbyCount: Int = 10
     @AppStorage("mapsProvider") private var mapsProvider: String = "apple"
 
