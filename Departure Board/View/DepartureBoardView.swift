@@ -24,6 +24,8 @@ struct DepartureBoardView: View {
     @State private var showInfo = false
     @State private var errorMessage: String?
     @State private var selectedBoard: BoardType = .departures
+    @State private var selectedServiceID: String?
+    @State private var stationInfoCrs: String?
 
     init(station: Station, initialBoardType: BoardType = .departures, navigationPath: Binding<NavigationPath>) {
         self.station = station
@@ -33,52 +35,55 @@ struct DepartureBoardView: View {
     }
 
     var body: some View {
-        Group {
-            if isLoading {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        List {
+            if let services = board?.trainServices?.service {
+                ForEach(services) { service in
+                    Section {
+                        NavigationLink(value: service) {
+                            DepartureRow(service: service, boardType: selectedBoard)
+                        }
+                        .contextMenu {
+                            serviceContextMenu(service)
+                        }
+                        .listRowBackground(
+                            selectedServiceID == service.serviceID
+                                ? Theme.brandSubtle : nil
+                        )
+                    }
+                }
+
+                HStack {
+                    Spacer()
+                    Image("NRE")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 80)
+                        .opacity(0.6)
+                    Spacer()
+                }
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             } else if let errorMessage {
                 Text(errorMessage)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding()
+                    .frame(maxWidth: .infinity)
+            } else if !isLoading {
+                Text("No services available")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .listSectionSpacing(6)
+        .refreshable {
+            await loadBoard(type: selectedBoard)
+        }
+        .overlay {
+            if isLoading && board == nil {
+                ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let board {
-                List {
-                    if let services = board.trainServices?.service {
-                        ForEach(services) { service in
-                            Section {
-                                NavigationLink(value: service) {
-                                    DepartureRow(service: service, boardType: selectedBoard)
-                                }
-                            }
-                        }
-
-                        HStack {
-                            Spacer()
-                            Image("NRE")
-                                .resizable()
-                                .scaledToFit()
-                                .frame(height: 80)
-                                .opacity(0.6)
-                            Spacer()
-                        }
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                    } else {
-                        Text("No services available")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .listStyle(.insetGrouped)
-                .listSectionSpacing(6)
-                .refreshable {
-                    await loadBoard(type: selectedBoard)
-                }
-                .transition(.asymmetric(
-                    insertion: .opacity.combined(with: .move(edge: .trailing)),
-                    removal: .opacity
-                ))
+                    .background(.background)
             }
         }
         .toolbar {
@@ -98,6 +103,16 @@ struct DepartureBoardView: View {
                 selectedBoard = boardType
             })
         }
+        .sheet(item: $stationInfoCrs) { crs in
+            StationInfoView(crs: crs, onDismiss: {
+                stationInfoCrs = nil
+            }, onNavigate: { boardType in
+                if let station = StationCache.load()?.first(where: { $0.crsCode == crs }) {
+                    stationInfoCrs = nil
+                    navigationPath.append(StationDestination(station: station, boardType: boardType))
+                }
+            })
+        }
         .safeAreaInset(edge: .bottom, alignment: .leading) {
             Picker("Board Type", selection: $selectedBoard) {
                 ForEach(BoardType.allCases, id: \.self) { type in
@@ -115,6 +130,14 @@ struct DepartureBoardView: View {
                 boardType: selectedBoard,
                 navigationPath: $navigationPath
             )
+            .onAppear {
+                selectedServiceID = service.serviceID
+            }
+            .onDisappear {
+                withAnimation(.easeOut(duration: 0.6)) {
+                    selectedServiceID = nil
+                }
+            }
         }
         .onChange(of: selectedBoard) {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -124,6 +147,60 @@ struct DepartureBoardView: View {
         }
         .task {
             await loadBoard(type: selectedBoard, showLoading: true)
+        }
+    }
+
+    // MARK: - Context Menu
+
+    @ViewBuilder
+    private func serviceContextMenu(_ service: Service) -> some View {
+        // Info section (non-interactive)
+        Section {
+            Text("\(service.operator)")
+            if let platform = service.platform {
+                Text("Platform \(platform)")
+            }
+            Text("Scheduled: \(service.scheduled)")
+            if service.estimated.lowercased() != "on time" {
+                Text("Expected: \(service.estimated)")
+            }
+        }
+
+        // Origin station actions
+        if let origin = service.origin.location.first {
+            Section(origin.locationName) {
+                stationMenuButtons(crs: origin.crs, name: origin.locationName)
+            }
+        }
+
+        // Destination station actions
+        if let destination = service.destination.location.first {
+            Section(destination.locationName) {
+                stationMenuButtons(crs: destination.crs, name: destination.locationName)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func stationMenuButtons(crs: String, name: String) -> some View {
+        if let station = StationCache.load()?.first(where: { $0.crsCode == crs }) {
+            Button {
+                navigationPath.append(StationDestination(station: station, boardType: .departures))
+            } label: {
+                Label("Departures", systemImage: "arrow.up.right")
+            }
+
+            Button {
+                navigationPath.append(StationDestination(station: station, boardType: .arrivals))
+            } label: {
+                Label("Arrivals", systemImage: "arrow.down.left")
+            }
+        }
+
+        Button {
+            stationInfoCrs = crs
+        } label: {
+            Label("Station Information", systemImage: "info.circle")
         }
     }
 

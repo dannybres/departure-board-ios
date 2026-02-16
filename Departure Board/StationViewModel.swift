@@ -89,10 +89,25 @@ class StationViewModel: ObservableObject {
         return try JSONDecoder().decode(ServiceDetail.self, from: data)
     }
 
-    func fetchBoard(for crs: String, type: BoardType = .departures) async throws -> DepartureBoard {
-        let urlString = "https://rail.breslan.co.uk/api/\(type.rawValue)/\(crs)"
+    func fetchBoard(
+        for crs: String,
+        type: BoardType = .departures,
+        numRows: Int? = nil,
+        filterCrs: String? = nil,
+        filterType: String? = nil,
+        timeOffset: Int? = nil,
+        timeWindow: Int? = nil
+    ) async throws -> DepartureBoard {
+        var components = URLComponents(string: "https://rail.breslan.co.uk/api/\(type.rawValue)/\(crs)")!
+        var queryItems: [URLQueryItem] = []
+        if let numRows { queryItems.append(URLQueryItem(name: "numRows", value: String(numRows))) }
+        if let filterCrs { queryItems.append(URLQueryItem(name: "filterCrs", value: filterCrs)) }
+        if let filterType { queryItems.append(URLQueryItem(name: "filterType", value: filterType)) }
+        if let timeOffset { queryItems.append(URLQueryItem(name: "timeOffset", value: String(timeOffset))) }
+        if let timeWindow { queryItems.append(URLQueryItem(name: "timeWindow", value: String(timeWindow))) }
+        if !queryItems.isEmpty { components.queryItems = queryItems }
 
-        guard let url = URL(string: urlString) else {
+        guard let url = components.url else {
             throw URLError(.badURL)
         }
         

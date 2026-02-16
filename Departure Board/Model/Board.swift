@@ -11,8 +11,10 @@ struct DepartureBoard: Codable {
     let generatedAt: String
     let locationName: String
     let crs: String
+    let filterLocationName: String?
+    let filtercrs: String?
     let platformAvailable: String
-    
+
     let trainServices: TrainServices?
 }
 

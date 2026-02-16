@@ -21,7 +21,6 @@ enum TimelineState {
 struct TimelineIndicator: View {
     let position: TimelinePosition
     let state: TimelineState
-
     private let circleSize: CGFloat = 20
     private let lineWidth: CGFloat = 2
     private let columnWidth: CGFloat = 30
@@ -45,15 +44,17 @@ struct TimelineIndicator: View {
 
             // Circle
             circleView
+
+
         }
         .frame(width: columnWidth)
     }
 
     private var topLineColor: Color {
         switch state {
-        case .past, .current:
-            return .green
-        case .future, .cancelled:
+        case .past:
+            return Theme.brand
+        case .current, .future, .cancelled:
             return Color.secondary.opacity(0.3)
         }
     }
@@ -61,7 +62,7 @@ struct TimelineIndicator: View {
     private var bottomLineColor: Color {
         switch state {
         case .past:
-            return .green
+            return Theme.brand
         case .current, .future, .cancelled:
             return Color.secondary.opacity(0.3)
         }
@@ -71,22 +72,17 @@ struct TimelineIndicator: View {
     private var circleView: some View {
         switch state {
         case .past:
-            ZStack {
-                Circle()
-                    .fill(.green)
-                    .frame(width: circleSize, height: circleSize)
-                Image(systemName: "checkmark")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white)
-            }
+            Circle()
+                .fill(Theme.brand)
+                .frame(width: circleSize, height: circleSize)
         case .current:
             ZStack {
                 Circle()
-                    .fill(Theme.brand)
+                    .strokeBorder(Theme.brand, style: StrokeStyle(lineWidth: 2, dash: [4, 3]))
                     .frame(width: circleSize + 4, height: circleSize + 4)
                 Image(systemName: "location.fill")
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.brand.opacity(0.8))
             }
         case .future:
             Circle()
@@ -131,11 +127,20 @@ struct ServiceDetailView: View {
                     .padding()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let detail {
-                List {
-                    callingPointsList(detail)
-                }
-                .refreshable {
-                    await loadDetail()
+                ScrollViewReader { proxy in
+                    List {
+                        callingPointsList(detail)
+                    }
+                    .refreshable {
+                        await loadDetail()
+                    }
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation {
+                                proxy.scrollTo("currentStation", anchor: .center)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -340,7 +345,7 @@ struct ServiceDetailView: View {
                     timelineRow(position: position, state: .current) {
                         currentStationContent(d)
                     }
-                    .listRowBackground(Theme.brandSubtle)
+                    .id("currentStation")
                     .contextMenu {
                         callingPointContextMenu(crs: d.crs, name: d.locationName)
                     }
@@ -392,17 +397,20 @@ struct ServiceDetailView: View {
     private func timelineRow<Content: View>(position: TimelinePosition, state: TimelineState, @ViewBuilder content: () -> Content) -> some View {
         HStack(alignment: .center, spacing: 8) {
             TimelineIndicator(position: position, state: state)
+                .padding(.vertical, -20)
                 .frame(maxHeight: .infinity)
 
             content()
+                .padding(.vertical, 4)
 
             Spacer()
         }
-        .padding(.vertical, 4)
     }
 
+    @Environment(\.colorScheme) private var colorScheme
+
     private func currentStationContent(_ detail: ServiceDetail) -> some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(detail.sta ?? detail.std ?? "")
                 .font(.subheadline)
                 .bold()
@@ -410,7 +418,7 @@ struct ServiceDetailView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(detail.locationName)
-                    .font(.body)
+                    .font(.subheadline)
                     .bold()
 
                 if let ata = detail.ata {
@@ -427,22 +435,28 @@ struct ServiceDetailView: View {
             Spacer()
 
             if let platform = detail.platform {
-                Text("P\(platform)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text("Plat \(platform)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(colorScheme == .dark ? .black : .white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        colorScheme == .dark ? Theme.platformBadgeDark : Theme.platformBadge,
+                        in: RoundedRectangle(cornerRadius: 6)
+                    )
             }
         }
     }
 
     private func callingPointContent(_ point: CallingPoint, isPast: Bool) -> some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(point.st)
                 .font(.subheadline)
                 .frame(width: 45, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(point.locationName)
-                    .font(.body)
+                    .font(.subheadline)
                     .strikethrough(point.cancelled)
 
                 if point.cancelled {
