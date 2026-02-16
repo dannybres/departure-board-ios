@@ -50,10 +50,12 @@ struct SettingsView: View {
 
                 Button {
                     isRefreshing = true
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     Task {
                         await viewModel.forceRefresh()
                         lastRefresh = StationCache.lastRefreshDate()
                         isRefreshing = false
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
                     }
                 } label: {
                     HStack {

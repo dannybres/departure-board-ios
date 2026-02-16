@@ -56,8 +56,10 @@ struct ContentView: View {
         var current = favourites
         if let index = current.firstIndex(of: station.crsCode) {
             current.remove(at: index)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
         } else {
             current.append(station.crsCode)
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         }
         setFavourites(current)
     }
@@ -129,11 +131,17 @@ struct ContentView: View {
                                 }
                             }
                     }
+                    .tint(Theme.brand)
                 }
                 .sheet(item: $stationInfoCrs) { crs in
-                    StationInfoView(crs: crs) {
+                    StationInfoView(crs: crs, onDismiss: {
                         stationInfoCrs = nil
-                    }
+                    }, onNavigate: { boardType in
+                        if let station = StationCache.load()?.first(where: { $0.crsCode == crs }) {
+                            stationInfoCrs = nil
+                            navigationPath.append(StationDestination(station: station, boardType: boardType))
+                        }
+                    })
                 }
                 .navigationDestination(for: Station.self) { station in
                     DepartureBoardView(station: station, navigationPath: $navigationPath)
@@ -253,6 +261,9 @@ struct ContentView: View {
 
     private func sectionHeader(_ title: String, icon: String) -> some View {
         Label(title, systemImage: icon)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Theme.brand)
+            .textCase(nil)
     }
 
     private func distanceInMiles(to station: Station) -> Double? {
@@ -317,15 +328,22 @@ struct ContentView: View {
 
     }
 
+    private func crsPill(_ code: String) -> some View {
+        Text(code)
+            .font(Theme.crsFont)
+            .foregroundStyle(Theme.brand)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Theme.brandSubtle, in: RoundedRectangle(cornerRadius: 4))
+    }
+
     private func nearbyRow(_ station: Station) -> some View {
         NavigationLink(value: station) {
             HStack {
+                crsPill(station.crsCode)
                 VStack(alignment: .leading) {
                     Text(station.name)
                         .font(.headline)
-                    Text(station.crsCode)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
                 }
                 Spacer()
                 if let distance = distanceInMiles(to: station) {
@@ -343,12 +361,10 @@ struct ContentView: View {
     private func stationRow(_ station: Station) -> some View {
         NavigationLink(value: station) {
             HStack {
+                crsPill(station.crsCode)
                 VStack(alignment: .leading) {
                     Text(station.name)
                         .font(.headline)
-                    Text(station.crsCode)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
                 }
                 if isFavourite(station) {
                     Spacer()

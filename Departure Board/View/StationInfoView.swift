@@ -12,6 +12,7 @@ struct StationInfoView: View {
 
     let crs: String
     let onDismiss: () -> Void
+    var onNavigate: ((BoardType) -> Void)? = nil
 
     @State private var info: StationInfo?
     @State private var isLoading = true
@@ -48,6 +49,27 @@ struct StationInfoView: View {
 
     private func stationInfoList(_ info: StationInfo) -> some View {
         List {
+            // Navigation buttons
+            if let onNavigate {
+                Section {
+                    Button {
+                        onNavigate(.departures)
+                    } label: {
+                        Label("Show Departures", systemImage: "arrow.up.right")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .tint(Theme.brand)
+
+                    Button {
+                        onNavigate(.arrivals)
+                    } label: {
+                        Label("Show Arrivals", systemImage: "arrow.down.left")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .tint(Theme.brand)
+                }
+            }
+
             // Group 1: Map, Alerts, Station, InformationSystems, CustomerService
             Group {
             // Map
@@ -58,7 +80,8 @@ struct StationInfoView: View {
                         center: CLLocationCoordinate2D(latitude: lat, longitude: lon),
                         span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005)
                     ))) {
-                        Marker(info.Name, coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon))
+                        Marker(info.Name, systemImage: "tram.fill", coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon))
+                            .tint(Theme.brand)
                     }
                     .frame(height: 180)
                     .listRowInsets(EdgeInsets())
@@ -76,9 +99,10 @@ struct StationInfoView: View {
                             .font(.subheadline)
                             .foregroundStyle(.red)
                             .copyable(stripHTML(alert))
+                            .listRowBackground(Color.red.opacity(0.08))
                     }
                 } header: {
-                    Label("Alerts", systemImage: "exclamationmark.triangle.fill")
+                    infoSectionHeader("Alerts", icon: "exclamationmark.triangle.fill")
                 }
             }
 
@@ -122,7 +146,7 @@ struct StationInfoView: View {
                 }
 
             } header: {
-                Label("Station", systemImage: "building.2")
+                infoSectionHeader("Station", icon: "building.2")
             }
 
             if info.InformationSystems != nil {
@@ -140,7 +164,7 @@ struct StationInfoView: View {
                             .copyable(announcements ? "Yes" : "No")
                     }
                 } header: {
-                    Label("Information Systems", systemImage: "tv")
+                    infoSectionHeader("Information Systems", icon: "tv")
                 }
             }
 
@@ -161,7 +185,7 @@ struct StationInfoView: View {
                             .foregroundStyle(.secondary)
                             .copyable(cleaned)
                     } header: {
-                        Label("Customer Service", systemImage: "person.fill")
+                        infoSectionHeader("Customer Service", icon: "person.fill")
                     }
                 }
             }
@@ -175,7 +199,7 @@ struct StationInfoView: View {
                 Section {
                     serviceContactRows(service: ll)
                 } header: {
-                    Label("Left Luggage", systemImage: "bag")
+                    infoSectionHeader("Left Luggage", icon: "bag")
                 }
             }
 
@@ -184,7 +208,7 @@ struct StationInfoView: View {
                 Section {
                     serviceContactRows(service: lp)
                 } header: {
-                    Label("Lost Property", systemImage: "magnifyingglass")
+                    infoSectionHeader("Lost Property", icon: "magnifyingglass")
                 }
             }
 
@@ -221,7 +245,7 @@ struct StationInfoView: View {
                         }
                     }
                 } header: {
-                    Label("Ticket Office", systemImage: "ticket")
+                    infoSectionHeader("Ticket Office", icon: "ticket")
                 }
             }
 
@@ -271,7 +295,7 @@ struct StationInfoView: View {
                     }
                 }
             } header: {
-                Label("Facilities", systemImage: "list.bullet")
+                infoSectionHeader("Facilities", icon: "list.bullet")
             }
 
             } // end Group 2
@@ -397,7 +421,7 @@ struct StationInfoView: View {
                     }
                 }
             } header: {
-                Label("Accessibility", systemImage: "accessibility")
+                infoSectionHeader("Accessibility", icon: "accessibility")
             }
 
             // Transport Links
@@ -549,7 +573,7 @@ struct StationInfoView: View {
                     }
                 }
             } header: {
-                Label("Transport Links", systemImage: "arrow.triangle.branch")
+                infoSectionHeader("Transport Links", icon: "arrow.triangle.branch")
             }
 
             // Fares Info
@@ -595,11 +619,18 @@ struct StationInfoView: View {
                         .copyable(stripHTML(penalty))
                 }
             } header: {
-                Label("Fares", systemImage: "creditcard")
+                infoSectionHeader("Fares", icon: "creditcard")
             }
             } // end Group 3
         }
         .tint(.primary)
+    }
+
+    private func infoSectionHeader(_ title: String, icon: String) -> some View {
+        Label(title, systemImage: icon)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Theme.brand)
+            .textCase(nil)
     }
 
     // MARK: - Helpers
@@ -736,6 +767,10 @@ struct StationInfoView: View {
         text = text.replacingOccurrences(of: "<li[^>]*>", with: "• ", options: .regularExpression)
         // Strip remaining tags
         text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        // Fix trailing whitespace inside bold markers: "**word **" → "**word**"
+        text = text.replacingOccurrences(of: #"\s+\*\*"#, with: "**", options: .regularExpression)
+        // Fix literal * adjacent to bold marker: "***word" → "**word" (stray asterisk from source content)
+        text = text.replacingOccurrences(of: #"\*\*\*([^\*])"#, with: "**$1", options: .regularExpression)
         // Collapse multiple blank lines
         text = text.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)

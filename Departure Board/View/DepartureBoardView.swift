@@ -13,7 +13,7 @@ enum BoardType: String, CaseIterable {
 }
 
 struct DepartureBoardView: View {
-    
+
     let station: Station
     var initialBoardType: BoardType = .departures
     @Binding var navigationPath: NavigationPath
@@ -31,7 +31,7 @@ struct DepartureBoardView: View {
         self._navigationPath = navigationPath
         _selectedBoard = State(initialValue: initialBoardType)
     }
-    
+
     var body: some View {
         Group {
             if isLoading {
@@ -47,14 +47,16 @@ struct DepartureBoardView: View {
                 List {
                     if let services = board.trainServices?.service {
                         ForEach(services) { service in
-                            NavigationLink(value: service) {
-                                DepartureRow(service: service, boardType: selectedBoard)
+                            Section {
+                                NavigationLink(value: service) {
+                                    DepartureRow(service: service, boardType: selectedBoard)
+                                }
                             }
                         }
-                        
+
                         HStack {
                             Spacer()
-                            Image("NRE")   // must match your asset name
+                            Image("NRE")
                                 .resizable()
                                 .scaledToFit()
                                 .frame(height: 80)
@@ -62,14 +64,21 @@ struct DepartureBoardView: View {
                             Spacer()
                         }
                         .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                     } else {
                         Text("No services available")
                             .foregroundStyle(.secondary)
                     }
                 }
+                .listStyle(.insetGrouped)
+                .listSectionSpacing(6)
                 .refreshable {
                     await loadBoard(type: selectedBoard)
                 }
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .move(edge: .trailing)),
+                    removal: .opacity
+                ))
             }
         }
         .toolbar {
@@ -82,9 +91,12 @@ struct DepartureBoardView: View {
             }
         }
         .sheet(isPresented: $showInfo) {
-            StationInfoView(crs: station.crsCode) {
+            StationInfoView(crs: station.crsCode, onDismiss: {
                 showInfo = false
-            }
+            }, onNavigate: { boardType in
+                showInfo = false
+                selectedBoard = boardType
+            })
         }
         .safeAreaInset(edge: .bottom, alignment: .leading) {
             Picker("Board Type", selection: $selectedBoard) {
@@ -105,6 +117,7 @@ struct DepartureBoardView: View {
             )
         }
         .onChange(of: selectedBoard) {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             Task {
                 await loadBoard(type: selectedBoard, showLoading: true)
             }
@@ -113,17 +126,21 @@ struct DepartureBoardView: View {
             await loadBoard(type: selectedBoard, showLoading: true)
         }
     }
-    
+
     // MARK: - Helper Methods
-    
+
     private func loadBoard(type: BoardType, showLoading: Bool = false) async {
         if showLoading { isLoading = true }
         do {
             let result = try await StationViewModel().fetchBoard(for: station.crsCode, type: type)
-            board = result
-            errorMessage = nil
+            withAnimation(.easeInOut(duration: 0.3)) {
+                board = result
+                errorMessage = nil
+            }
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
         } catch {
             errorMessage = "Failed to load board"
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
         }
         isLoading = false
     }
@@ -135,6 +152,7 @@ struct DepartureRow: View {
 
     let service: Service
     let boardType: BoardType
+    @Environment(\.colorScheme) private var colorScheme
 
     private var location: Location? {
         if boardType == .arrivals {
@@ -143,16 +161,36 @@ struct DepartureRow: View {
         return service.destination.location.first
     }
 
+    private var isCancelled: Bool {
+        service.estimated.lowercased().contains("cancel")
+    }
+
+    private var isDelayed: Bool {
+        let text = service.estimated.lowercased()
+        return text.contains("delayed") || (isTimeFormat(service.estimated) && service.estimated > service.scheduled)
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Text(service.scheduled)
-                .font(.title3)
-                .bold()
+                .font(Theme.timeFont)
                 .frame(width: 60, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(location?.locationName ?? "")
-                    .font(.headline)
+                HStack(spacing: 6) {
+                    Text(location?.locationName ?? "")
+                        .font(.title3.weight(.semibold))
+
+                    if isCancelled {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.red)
+                            .font(.caption)
+                    } else if isDelayed {
+                        Image(systemName: "clock.fill")
+                            .foregroundStyle(.orange)
+                            .font(.caption)
+                    }
+                }
 
                 if let via = location?.via {
                     Text(via)
@@ -165,19 +203,25 @@ struct DepartureRow: View {
                         .font(.subheadline)
                         .foregroundStyle(statusColor(for: service.estimated))
                 }
-
-                if let platform = service.platform {
-                    Text("Platform \(platform)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
             }
 
             Spacer()
+
+            if let platform = service.platform {
+                Text("Plat \(platform)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(colorScheme == .dark ? .black : .white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        colorScheme == .dark ? Theme.platformBadgeDark : Theme.platformBadge,
+                        in: RoundedRectangle(cornerRadius: 6)
+                    )
+            }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, Theme.rowPadding)
     }
-    
+
     private func isTimeFormat(_ text: String) -> Bool {
         text.range(of: #"^\d{2}:\d{2}$"#, options: .regularExpression) != nil
     }

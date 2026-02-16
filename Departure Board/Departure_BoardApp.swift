@@ -12,6 +12,7 @@ struct Departure_BoardApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .tint(Theme.brand)
         }
     }
 }
