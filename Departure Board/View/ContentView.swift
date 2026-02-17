@@ -12,6 +12,7 @@ import CoreLocation
 struct StationDestination: Hashable, Identifiable {
     let station: Station
     let boardType: BoardType
+    var pendingServiceID: String?
     var id: String { "\(station.crsCode)-\(boardType.rawValue)" }
 }
 
@@ -149,7 +150,7 @@ struct ContentView: View {
                     DepartureBoardView(station: station, navigationPath: $navigationPath)
                 }
                 .navigationDestination(for: StationDestination.self) { dest in
-                    DepartureBoardView(station: dest.station, initialBoardType: dest.boardType, navigationPath: $navigationPath)
+                    DepartureBoardView(station: dest.station, initialBoardType: dest.boardType, pendingServiceID: dest.pendingServiceID, navigationPath: $navigationPath)
                 }
                 .onAppear { locationManager.refresh() }
                 .onChange(of: scenePhase) {
@@ -159,6 +160,7 @@ struct ContentView: View {
                 }
                 .onChange(of: locationManager.userLocation) {
                     guard let _ = locationManager.userLocation, !hasPushedNearbyStation else { return }
+                    guard deepLink == nil else { return }
 
                     if let firstNearby = nearbyStations.first {
                         withAnimation {
@@ -272,23 +274,28 @@ struct ContentView: View {
         case .departures(let c): crs = c
         case .arrivals(let c): crs = c
         case .station(let c): crs = c
+        case .service(let c, _): crs = c
         }
 
         guard let station = StationCache.load()?.first(where: { $0.crsCode == crs }) else { return }
 
-        // Reset navigation to root first
+        hasPushedNearbyStation = true
+
+        // Pop to root first, then push on the next run loop so SwiftUI
+        // fully tears down the old stack before creating the new view.
         navigationPath = NavigationPath()
 
-        switch link {
-        case .departures:
-            hasPushedNearbyStation = true
-            navigationPath.append(StationDestination(station: station, boardType: .departures))
-        case .arrivals:
-            hasPushedNearbyStation = true
-            navigationPath.append(StationDestination(station: station, boardType: .arrivals))
-        case .station:
-            hasPushedNearbyStation = true
-            stationInfoCrs = station.crsCode
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            switch link {
+            case .departures:
+                navigationPath.append(StationDestination(station: station, boardType: .departures))
+            case .arrivals:
+                navigationPath.append(StationDestination(station: station, boardType: .arrivals))
+            case .station:
+                stationInfoCrs = station.crsCode
+            case .service(_, let serviceID):
+                navigationPath.append(StationDestination(station: station, boardType: .departures, pendingServiceID: serviceID))
+            }
         }
     }
 

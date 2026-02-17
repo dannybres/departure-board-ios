@@ -11,6 +11,7 @@ struct DepartureBoardView: View {
 
     let station: Station
     var initialBoardType: BoardType = .departures
+    var pendingServiceID: String?
     @Binding var navigationPath: NavigationPath
 
     // MARK: - State
@@ -21,10 +22,12 @@ struct DepartureBoardView: View {
     @State private var selectedBoard: BoardType = .departures
     @State private var selectedServiceID: String?
     @State private var stationInfoCrs: String?
+    @State private var didAutoNavigate = false
 
-    init(station: Station, initialBoardType: BoardType = .departures, navigationPath: Binding<NavigationPath>) {
+    init(station: Station, initialBoardType: BoardType = .departures, pendingServiceID: String? = nil, navigationPath: Binding<NavigationPath>) {
         self.station = station
         self.initialBoardType = initialBoardType
+        self.pendingServiceID = pendingServiceID
         self._navigationPath = navigationPath
         _selectedBoard = State(initialValue: initialBoardType)
     }
@@ -142,6 +145,11 @@ struct DepartureBoardView: View {
         }
         .task {
             await loadBoard(type: selectedBoard, showLoading: true)
+            if let pendingServiceID, !didAutoNavigate,
+               let service = board?.trainServices?.service.first(where: { $0.serviceID == pendingServiceID }) {
+                didAutoNavigate = true
+                navigationPath.append(service)
+            }
         }
     }
 

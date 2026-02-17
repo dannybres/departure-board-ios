@@ -105,18 +105,18 @@ struct DepartureEntry: TimelineEntry {
 
 struct SingleStationProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> DepartureEntry {
-        .mock(stationCount: 1, serviceCount: 6)
+        .mock(stationCount: 1, serviceCount: 16)
     }
 
     func snapshot(for configuration: SingleStationIntent, in context: Context) async -> DepartureEntry {
         if context.isPreview {
-            return .mock(stationCount: 1, serviceCount: 6)
+            return .mock(stationCount: 1, serviceCount: 16)
         }
-        return await fetchEntry(codes: selectedCodes(for: configuration), servicesPerStation: 6)
+        return await fetchEntry(codes: selectedCodes(for: configuration), servicesPerStation: 16)
     }
 
     func timeline(for configuration: SingleStationIntent, in context: Context) async -> Timeline<DepartureEntry> {
-        let entry = await fetchEntry(codes: selectedCodes(for: configuration), servicesPerStation: 6)
+        let entry = await fetchEntry(codes: selectedCodes(for: configuration), servicesPerStation: 16)
         let nextRefresh = Date().addingTimeInterval(300)
         return Timeline(entries: [entry], policy: .after(nextRefresh))
     }
@@ -134,18 +134,18 @@ struct SingleStationProvider: AppIntentTimelineProvider {
 
 struct DualStationProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> DepartureEntry {
-        .mock(stationCount: 2, serviceCount: 3)
+        .mock(stationCount: 2, serviceCount: 8)
     }
 
     func snapshot(for configuration: DualStationIntent, in context: Context) async -> DepartureEntry {
         if context.isPreview {
-            return .mock(stationCount: 2, serviceCount: 3)
+            return .mock(stationCount: 2, serviceCount: 8)
         }
-        return await fetchEntry(codes: selectedCodes(for: configuration), servicesPerStation: 3)
+        return await fetchEntry(codes: selectedCodes(for: configuration), servicesPerStation: 8)
     }
 
     func timeline(for configuration: DualStationIntent, in context: Context) async -> Timeline<DepartureEntry> {
-        let entry = await fetchEntry(codes: selectedCodes(for: configuration), servicesPerStation: 3)
+        let entry = await fetchEntry(codes: selectedCodes(for: configuration), servicesPerStation: 8)
         let nextRefresh = Date().addingTimeInterval(300)
         return Timeline(entries: [entry], policy: .after(nextRefresh))
     }
@@ -250,10 +250,27 @@ extension DepartureEntry {
 
 struct SingleStationWidgetView: View {
     let entry: DepartureEntry
+    @Environment(\.widgetFamily) var family
+
+    private var maxRows: Int {
+        switch family {
+        case .systemSmall: return 7
+        case .systemMedium: return 7
+        default: return 16
+        }
+    }
+
+    private var rowStyle: WidgetRowStyle {
+        switch family {
+        case .systemSmall: return .minimal
+        case .systemMedium: return .compact
+        default: return .full
+        }
+    }
 
     var body: some View {
         if let station = entry.stations.first {
-            StationBlock(station: station, compactRows: false)
+            StationBlock(station: station, style: rowStyle, maxRows: maxRows)
         } else {
             Text("Tap and hold to choose a station")
                 .font(.caption)
@@ -265,6 +282,11 @@ struct SingleStationWidgetView: View {
 
 struct DualStationWidgetView: View {
     let entry: DepartureEntry
+    @Environment(\.widgetFamily) var family
+
+    private var maxRowsPerStation: Int {
+        family == .systemMedium ? 3 : 8
+    }
 
     var body: some View {
         if entry.stations.isEmpty {
@@ -275,32 +297,38 @@ struct DualStationWidgetView: View {
         } else {
             VStack(spacing: 0) {
                 if let first = entry.stations.first {
-                    Link(destination: URL(string: "departure://departures/\(first.crs)")!) {
-                        StationBlock(station: first, compactRows: true)
-                    }
+                    StationBlock(station: first, style: .compact, maxRows: maxRowsPerStation)
                 }
                 if entry.stations.count > 1 {
                     Divider()
                         .padding(.horizontal)
-                    Link(destination: URL(string: "departure://departures/\(entry.stations[1].crs)")!) {
-                        StationBlock(station: entry.stations[1], compactRows: true)
-                    }
+                    StationBlock(station: entry.stations[1], style: .compact, maxRows: maxRowsPerStation)
                 }
             }
         }
     }
 }
 
+enum WidgetRowStyle {
+    case minimal  // small widget: no status text, colour the time instead
+    case compact  // medium / dual: compact with status
+    case full     // large: full size with status
+}
+
 struct StationBlock: View {
     let station: DepartureEntry.StationDepartures
-    let compactRows: Bool
+    var style: WidgetRowStyle = .full
+    var maxRows: Int? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(station.name)
-                .font(.caption.weight(.bold))
-                .foregroundStyle(Theme.brand)
-                .lineLimit(1)
+        let services = maxRows.map { Array(station.services.prefix($0)) } ?? station.services
+        VStack(alignment: .leading, spacing: style == .full ? 4 : 2) {
+            Link(destination: URL(string: "departure://departures/\(station.crs)")!) {
+                Text(station.name)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Theme.brand)
+                    .lineLimit(1)
+            }
 
             if station.services.isEmpty {
                 Text("No services")
@@ -308,8 +336,11 @@ struct StationBlock: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ForEach(station.services) { service in
-                    WidgetDepartureRow(service: service, compact: compactRows)
+                ForEach(services) { service in
+                    let encodedID = service.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? service.id
+                    Link(destination: URL(string: "departure://service/\(station.crs)/\(encodedID)")!) {
+                        WidgetDepartureRow(service: service, style: style)
+                    }
                 }
             }
             Spacer(minLength: 0)
@@ -320,37 +351,59 @@ struct StationBlock: View {
 
 struct WidgetDepartureRow: View {
     let service: DepartureEntry.WidgetService
-    let compact: Bool
+    var style: WidgetRowStyle = .full
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var timeColor: Color {
+        if service.isCancelled { return .red }
+        if service.isDelayed { return .orange }
+        return .primary
+    }
+
+    private var isCompact: Bool { style != .full }
 
     var body: some View {
         HStack(spacing: 6) {
             Text(service.scheduled)
-                .font(.system(compact ? .caption : .caption, design: .monospaced).bold())
-                .frame(width: compact ? 36 : 40, alignment: .leading)
+                .font(.system(isCompact ? .caption2 : .caption, design: .monospaced).bold())
+                .foregroundStyle(style == .minimal ? timeColor : .primary)
+                .frame(width: isCompact ? 36 : 40, alignment: .leading)
 
             Text(service.destination)
-                .font(compact ? .caption2 : .caption)
+                .font(isCompact ? .caption2 : .caption)
                 .lineLimit(1)
 
             Spacer(minLength: 0)
 
+            if style == .minimal {
+                if service.isCancelled {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                }
+            } else {
+                if service.isCancelled {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                } else if service.status.lowercased() != "on time" {
+                    Text(service.status)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(service.isDelayed ? .orange : .secondary)
+                }
+            }
+
             if let platform = service.platform {
                 Text(platform)
                     .font(.system(.caption2, design: .monospaced).bold())
-                    .foregroundStyle(.white)
+                    .foregroundStyle(colorScheme == .dark ? .black : .white)
                     .padding(.horizontal, 4)
                     .padding(.vertical, 1)
-                    .background(Color(white: 0.2), in: RoundedRectangle(cornerRadius: 3))
-            }
-
-            if service.isCancelled {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.red)
-            } else if service.status.lowercased() != "on time" {
-                Text(service.status)
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(service.isDelayed ? .orange : .secondary)
+                    .background(
+                        colorScheme == .dark ? Theme.platformBadgeDark : Theme.platformBadge,
+                        in: RoundedRectangle(cornerRadius: 3)
+                    )
+                    .frame(width: 28, alignment: .trailing)
             }
         }
     }
@@ -365,11 +418,10 @@ struct SingleStationWidget: Widget {
         AppIntentConfiguration(kind: kind, intent: SingleStationIntent.self, provider: SingleStationProvider()) { entry in
             SingleStationWidgetView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
-                .widgetURL(URL(string: "departure://departures/\(entry.stations.first?.crs ?? "")"))
         }
         .configurationDisplayName("Station Departures")
         .description("Departures from a chosen station.")
-        .supportedFamilies([.systemLarge])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
 
@@ -383,6 +435,6 @@ struct DualStationWidget: Widget {
         }
         .configurationDisplayName("Two Stations")
         .description("Departures from two chosen stations.")
-        .supportedFamilies([.systemLarge])
+        .supportedFamilies([.systemMedium, .systemLarge])
     }
 }
