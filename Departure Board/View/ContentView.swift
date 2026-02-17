@@ -112,24 +112,48 @@ struct ContentView: View {
         return savedFilters.contains { $0.isFavourite && ($0.stationCrs == station.crsCode || $0.filterCrs == station.crsCode) }
     }
 
-    /// Get all favourite entries involving this station
-    private func favouritesForStation(_ station: Station) -> [(label: String, id: String)] {
-        var results: [(String, String)] = []
+    enum FavouriteEntry: Identifiable {
+        case board(Station, BoardType)
+        case filter(SavedFilter)
+
+        var id: String {
+            switch self {
+            case .board(let s, let bt): return SharedDefaults.stationFavID(crs: s.crsCode, boardType: bt)
+            case .filter(let f): return f.id
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .board(_, let bt): return bt.rawValue.capitalized
+            case .filter(let f): return "\(f.boardType.rawValue.capitalized) \(f.filterLabel)"
+            }
+        }
+    }
+
+    private func favouritesForStation(_ station: Station) -> [FavouriteEntry] {
+        var results: [FavouriteEntry] = []
         if isStationFavourited(station, boardType: .departures) {
-            results.append(("Departures", SharedDefaults.stationFavID(crs: station.crsCode, boardType: .departures)))
+            results.append(.board(station, .departures))
         }
         if isStationFavourited(station, boardType: .arrivals) {
-            results.append(("Arrivals", SharedDefaults.stationFavID(crs: station.crsCode, boardType: .arrivals)))
+            results.append(.board(station, .arrivals))
         }
         for filter in savedFilters where filter.isFavourite {
-            if filter.stationCrs == station.crsCode {
-                results.append(("\(filter.boardType.rawValue.capitalized) \(filter.filterLabel)", filter.id))
-            } else if filter.filterCrs == station.crsCode {
-                let otherName = filter.stationName
-                results.append(("\(otherName) \(filter.boardType.rawValue.capitalized) \(filter.filterLabel)", filter.id))
+            if filter.stationCrs == station.crsCode || filter.filterCrs == station.crsCode {
+                results.append(.filter(filter))
             }
         }
         return results
+    }
+
+    private func navigateToFavouriteEntry(_ entry: FavouriteEntry) {
+        switch entry {
+        case .board(let station, let boardType):
+            navigationPath.append(StationDestination(station: station, boardType: boardType))
+        case .filter(let filter):
+            navigateToFilter(filter)
+        }
     }
 
     private func moveFavourite(from source: IndexSet, to destination: Int) {
@@ -522,8 +546,12 @@ struct ContentView: View {
         let existingFavs = favouritesForStation(station)
         if !existingFavs.isEmpty {
             Section("Favourited") {
-                ForEach(existingFavs, id: \.id) { fav in
-                    Text(fav.label)
+                ForEach(existingFavs) { fav in
+                    Button {
+                        navigateToFavouriteEntry(fav)
+                    } label: {
+                        Label(fav.label, systemImage: "star.fill")
+                    }
                 }
             }
         }

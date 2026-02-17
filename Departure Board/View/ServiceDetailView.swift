@@ -342,6 +342,7 @@ struct ServiceDetailView: View {
                             .foregroundStyle(actual == "On time" ? Color.primary : Color.orange)
                     } else if let expected = point.expected {
                         Text(expected == "On time" ? "On time" : expected)
+                     
                             .font(.caption)
                             .foregroundStyle(expected == "On time" ? Color.primary : Color.orange)
                     }
