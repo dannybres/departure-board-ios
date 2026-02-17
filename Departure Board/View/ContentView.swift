@@ -106,6 +106,32 @@ struct ContentView: View {
         isStationFavourited(station, boardType: .departures) || isStationFavourited(station, boardType: .arrivals)
     }
 
+    /// Check if a station has any favourite at all (board or filter involving it)
+    private func hasAnyFavourite(_ station: Station) -> Bool {
+        if isAnyBoardFavourited(station) { return true }
+        return savedFilters.contains { $0.isFavourite && ($0.stationCrs == station.crsCode || $0.filterCrs == station.crsCode) }
+    }
+
+    /// Get all favourite entries involving this station
+    private func favouritesForStation(_ station: Station) -> [(label: String, id: String)] {
+        var results: [(String, String)] = []
+        if isStationFavourited(station, boardType: .departures) {
+            results.append(("Departures", SharedDefaults.stationFavID(crs: station.crsCode, boardType: .departures)))
+        }
+        if isStationFavourited(station, boardType: .arrivals) {
+            results.append(("Arrivals", SharedDefaults.stationFavID(crs: station.crsCode, boardType: .arrivals)))
+        }
+        for filter in savedFilters where filter.isFavourite {
+            if filter.stationCrs == station.crsCode {
+                results.append(("\(filter.boardType.rawValue.capitalized) \(filter.filterLabel)", filter.id))
+            } else if filter.filterCrs == station.crsCode {
+                let otherName = filter.stationName
+                results.append(("\(otherName) \(filter.boardType.rawValue.capitalized) \(filter.filterLabel)", filter.id))
+            }
+        }
+        return results
+    }
+
     private func moveFavourite(from source: IndexSet, to destination: Int) {
         var current = favouriteItemIDs
         current.move(fromOffsets: source, toOffset: destination)
@@ -493,6 +519,15 @@ struct ContentView: View {
             Label("Show Arrivals", systemImage: "arrow.down.left")
         }
 
+        let existingFavs = favouritesForStation(station)
+        if !existingFavs.isEmpty {
+            Section("Favourited") {
+                ForEach(existingFavs, id: \.id) { fav in
+                    Text(fav.label)
+                }
+            }
+        }
+
         Divider()
 
         if isStationFavourited(station, boardType: .departures) {
@@ -710,6 +745,11 @@ struct ContentView: View {
                         .font(.headline)
                 }
                 Spacer()
+                if hasAnyFavourite(station) {
+                    Image(systemName: "star.fill")
+                        .foregroundStyle(Theme.brand)
+                        .font(.caption)
+                }
                 if let distance = distanceInMiles(to: station) {
                     Text(String(format: "%.1f mi", distance))
                         .font(.caption)
@@ -730,11 +770,11 @@ struct ContentView: View {
                     Text(station.name)
                         .font(.headline)
                 }
-                if isAnyBoardFavourited(station) {
+                if hasAnyFavourite(station) {
                     Spacer()
-                    Image(systemName: "bookmark.fill")
+                    Image(systemName: "star.fill")
                         .foregroundStyle(Theme.brand)
-                        .font(.subheadline)
+                        .font(.caption)
                 }
             }
         }
