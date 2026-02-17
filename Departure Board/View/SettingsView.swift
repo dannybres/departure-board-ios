@@ -11,6 +11,8 @@ struct SettingsView: View {
 
     @ObservedObject var viewModel: StationViewModel
     @AppStorage("nearbyStationCount") var nearbyCount: Int = 10
+    @AppStorage("recentFilterCount") var recentFilterCount: Int = 3
+    @AppStorage("showRecentFilters") var showRecentFilters: Bool = true
     @AppStorage("mapsProvider") var mapsProvider: String = "apple"
     @State private var isRefreshing = false
     @State private var lastRefresh: Date? = StationCache.lastRefreshDate()
@@ -19,6 +21,13 @@ struct SettingsView: View {
         Form {
             Section("Nearby Stations") {
                 Stepper("Show \(nearbyCount) stations", value: $nearbyCount, in: 1...25)
+            }
+
+            Section("Recent Filters") {
+                Toggle("Show Recent Filters", isOn: $showRecentFilters)
+                if showRecentFilters {
+                    Stepper("Keep \(recentFilterCount) recent", value: $recentFilterCount, in: 1...10)
+                }
             }
 
             Section("Maps") {

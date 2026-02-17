@@ -29,6 +29,8 @@ struct DepartureBoardView: View {
     @State private var filterStation: Station? = nil
     @State private var filterType: String = "to"
     @State private var showFilterSheet = false
+    @AppStorage(SharedDefaults.Keys.favouriteItems, store: SharedDefaults.shared) private var favouriteItemsData: Data = Data()
+    @AppStorage(SharedDefaults.Keys.savedFilters, store: SharedDefaults.shared) private var savedFiltersData: Data = Data()
 
     init(station: Station, initialBoardType: BoardType = .departures, pendingServiceID: String? = nil, initialFilterStation: Station? = nil, initialFilterType: String? = nil, navigationPath: Binding<NavigationPath>) {
         self.station = station
@@ -203,6 +205,12 @@ struct DepartureBoardView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 16) {
                     Button {
+                        toggleBoardFavourite()
+                    } label: {
+                        Image(systemName: isBoardFavourited ? "star.fill" : "star")
+                            .foregroundStyle(Theme.brand)
+                    }
+                    Button {
                         showFilterSheet = true
                     } label: {
                         Image(systemName: filterStation != nil ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
@@ -240,7 +248,7 @@ struct DepartureBoardView: View {
                 onSelect: { selected in
                     filterStation = selected
                     showFilterSheet = false
-                    SavedFilter.addRecent(stationCrs: station.crsCode, stationName: station.name, filterCrs: selected.crsCode, filterName: selected.name, filterType: filterType)
+                    SavedFilter.addRecent(stationCrs: station.crsCode, stationName: station.name, filterCrs: selected.crsCode, filterName: selected.name, filterType: filterType, boardType: selectedBoard)
                     Task { await loadBoard(type: selectedBoard) }
                 }
             )
@@ -323,7 +331,7 @@ struct DepartureBoardView: View {
                     Button {
                         filterStation = destStation
                         filterType = "to"
-                        SavedFilter.addRecent(stationCrs: station.crsCode, stationName: station.name, filterCrs: destination.crs, filterName: destination.locationName, filterType: "to")
+                        SavedFilter.addRecent(stationCrs: station.crsCode, stationName: station.name, filterCrs: destination.crs, filterName: destination.locationName, filterType: "to", boardType: selectedBoard)
                         Task { await loadBoard(type: selectedBoard) }
                     } label: {
                         Label("Filter to \(destination.locationName)", systemImage: "line.3.horizontal.decrease.circle")
@@ -354,6 +362,65 @@ struct DepartureBoardView: View {
         } label: {
             Label("Station Information", systemImage: "info.circle")
         }
+    }
+
+    // MARK: - Favourites
+
+    private var favouriteItemIDs: [String] {
+        (try? JSONDecoder().decode([String].self, from: favouriteItemsData)) ?? []
+    }
+
+    private var currentFavouriteID: String {
+        if let fs = filterStation {
+            return "\(station.crsCode)-\(selectedBoard.rawValue)-\(filterType)-\(fs.crsCode)"
+        }
+        return SharedDefaults.stationFavID(crs: station.crsCode, boardType: selectedBoard)
+    }
+
+    private var isBoardFavourited: Bool {
+        favouriteItemIDs.contains(currentFavouriteID)
+    }
+
+    private func toggleBoardFavourite() {
+        var items = favouriteItemIDs
+
+        if let fs = filterStation {
+            // Toggle filter favourite
+            let filterID = currentFavouriteID
+            var allFilters = (try? JSONDecoder().decode([SavedFilter].self, from: savedFiltersData)) ?? []
+
+            if let idx = allFilters.firstIndex(where: { $0.id == filterID }) {
+                let wasFav = allFilters[idx].isFavourite
+                allFilters[idx].isFavourite = !wasFav
+                if wasFav {
+                    items.removeAll { $0 == filterID }
+                } else {
+                    items.append(filterID)
+                }
+            } else {
+                // Filter doesn't exist yet — create and favourite it
+                let newFilter = SavedFilter(stationCrs: station.crsCode, stationName: station.name, filterCrs: fs.crsCode, filterName: fs.name, filterType: filterType, boardType: selectedBoard, isFavourite: true)
+                allFilters.append(newFilter)
+                items.append(filterID)
+            }
+
+            if let data = try? JSONEncoder().encode(allFilters) {
+                savedFiltersData = data
+            }
+        } else {
+            // Toggle station favourite
+            let id = currentFavouriteID
+            if let idx = items.firstIndex(of: id) {
+                items.remove(at: idx)
+            } else {
+                items.append(id)
+            }
+        }
+
+        favouriteItemsData = (try? JSONEncoder().encode(items)) ?? Data()
+        let allCodes = Set((StationCache.load() ?? []).map(\.crsCode))
+        SharedDefaults.syncStationFavourites(from: items, allStationCodes: allCodes)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 
     // MARK: - Helper Methods

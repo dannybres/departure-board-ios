@@ -44,6 +44,7 @@ struct Departure_BoardApp: App {
 
     init() {
         SharedDefaults.migrateIfNeeded()
+        SharedDefaults.migrateFavouriteItemsIfNeeded()
     }
 
     var body: some Scene {
