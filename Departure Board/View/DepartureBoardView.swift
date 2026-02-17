@@ -23,6 +23,7 @@ struct DepartureBoardView: View {
     @State private var selectedServiceID: String?
     @State private var stationInfoCrs: String?
     @State private var didAutoNavigate = false
+    @State private var timeOffset: Int? = nil
 
     init(station: Station, initialBoardType: BoardType = .departures, pendingServiceID: String? = nil, navigationPath: Binding<NavigationPath>) {
         self.station = station
@@ -35,6 +36,26 @@ struct DepartureBoardView: View {
     var body: some View {
         List {
             if let services = board?.trainServices?.service {
+                // Show earlier trains button
+                Section {
+                    Button {
+                        let current = timeOffset ?? 0
+                        let newOffset = max(current - 30, -120)
+                        timeOffset = newOffset
+                        Task { await loadBoard(type: selectedBoard) }
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Label("Show earlier trains", systemImage: "chevron.up")
+                                .font(.subheadline.weight(.medium))
+                            Spacer()
+                        }
+                        .foregroundStyle(Theme.brand)
+                    }
+                    .listRowBackground(Theme.brandSubtle)
+                    .disabled(timeOffset ?? 0 <= -120)
+                }
+
                 ForEach(services) { service in
                     Section {
                         NavigationLink(value: service) {
@@ -48,6 +69,24 @@ struct DepartureBoardView: View {
                                 ? Theme.brandSubtle : nil
                         )
                     }
+                }
+
+                // Show later trains button
+                Section {
+                    Button {
+                        let current = timeOffset ?? 0
+                        timeOffset = current + 30
+                        Task { await loadBoard(type: selectedBoard) }
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Label("Show later trains", systemImage: "chevron.down")
+                                .font(.subheadline.weight(.medium))
+                            Spacer()
+                        }
+                        .foregroundStyle(Theme.brand)
+                    }
+                    .listRowBackground(Theme.brandSubtle)
                 }
 
                 HStack {
@@ -84,6 +123,30 @@ struct DepartureBoardView: View {
                     .background(.background)
             }
         }
+        .safeAreaInset(edge: .top) {
+            if let offset = timeOffset, offset != 0 {
+                Button {
+                    timeOffset = nil
+                    Task { await loadBoard(type: selectedBoard) }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock")
+                            .font(.caption2)
+                        Text("Showing from \(showingFromTime)")
+                            .font(.caption.weight(.semibold))
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial, in: Capsule())
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: timeOffset)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
@@ -122,6 +185,7 @@ struct DepartureBoardView: View {
             .padding()
         }
         .navigationTitle(station.name)
+        .navigationBarTitleDisplayMode(.large)
         .navigationDestination(for: Service.self) { service in
             ServiceDetailView(
                 service: service,
@@ -139,6 +203,7 @@ struct DepartureBoardView: View {
         }
         .onChange(of: selectedBoard) {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            timeOffset = nil
             Task {
                 await loadBoard(type: selectedBoard, showLoading: true)
             }
@@ -209,10 +274,22 @@ struct DepartureBoardView: View {
 
     // MARK: - Helper Methods
 
+    private var showingFromTime: String {
+        let offsetDate = Date().addingTimeInterval(Double(timeOffset ?? 0) * 60)
+        let offsetString = offsetDate.formatted(date: .omitted, time: .shortened)
+
+        // If the first train is earlier than our calculated offset, use the train's time
+        if let firstScheduled = board?.trainServices?.service.first?.scheduled,
+           firstScheduled < offsetString {
+            return firstScheduled
+        }
+        return offsetString
+    }
+
     private func loadBoard(type: BoardType, showLoading: Bool = false) async {
         if showLoading { isLoading = true }
         do {
-            let result = try await StationViewModel.fetchBoard(for: station.crsCode, type: type)
+            let result = try await StationViewModel.fetchBoard(for: station.crsCode, type: type, timeOffset: timeOffset)
             withAnimation(.easeInOut(duration: 0.3)) {
                 board = result
                 errorMessage = nil
