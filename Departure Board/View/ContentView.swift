@@ -13,6 +13,8 @@ struct StationDestination: Hashable, Identifiable {
     let station: Station
     let boardType: BoardType
     var pendingServiceID: String?
+    var filterStation: Station?
+    var filterType: String?
     var id: String { "\(station.crsCode)-\(boardType.rawValue)" }
 }
 
@@ -34,6 +36,7 @@ struct ContentView: View {
     @State private var hasPushedNearbyStation = false
     @State private var stationInfoCrs: String?
     @AppStorage(SharedDefaults.Keys.favouriteStations, store: SharedDefaults.shared) private var favouritesData: Data = Data()
+    @AppStorage(SharedDefaults.Keys.savedFilters, store: SharedDefaults.shared) private var savedFiltersData: Data = Data()
     @AppStorage("nearbyStationCount") private var nearbyCount: Int = 10
     @AppStorage("mapsProvider") private var mapsProvider: String = "apple"
 
@@ -81,6 +84,33 @@ struct ContentView: View {
         let favCodes = favourites
         return favCodes.compactMap { code in
             filteredStations.first { $0.crsCode == code }
+        }
+    }
+
+    private var savedFilters: [SavedFilter] {
+        (try? JSONDecoder().decode([SavedFilter].self, from: savedFiltersData)) ?? []
+    }
+
+    private var displayFilters: [SavedFilter] {
+        savedFilters
+    }
+
+    private func removeFilter(_ filter: SavedFilter) {
+        var all = savedFilters
+        all.removeAll { $0.id == filter.id }
+        if let data = try? JSONEncoder().encode(all) {
+            savedFiltersData = data
+        }
+    }
+
+    private func toggleFilterFavourite(_ filter: SavedFilter) {
+        var all = savedFilters
+        if let idx = all.firstIndex(where: { $0.id == filter.id }) {
+            all[idx].isFavourite.toggle()
+            if let data = try? JSONEncoder().encode(all) {
+                savedFiltersData = data
+            }
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         }
     }
 
@@ -150,7 +180,7 @@ struct ContentView: View {
                     DepartureBoardView(station: station, navigationPath: $navigationPath)
                 }
                 .navigationDestination(for: StationDestination.self) { dest in
-                    DepartureBoardView(station: dest.station, initialBoardType: dest.boardType, pendingServiceID: dest.pendingServiceID, navigationPath: $navigationPath)
+                    DepartureBoardView(station: dest.station, initialBoardType: dest.boardType, pendingServiceID: dest.pendingServiceID, initialFilterStation: dest.filterStation, initialFilterType: dest.filterType, navigationPath: $navigationPath)
                 }
                 .onAppear { locationManager.refresh() }
                 .onChange(of: scenePhase) {
@@ -209,6 +239,36 @@ struct ContentView: View {
                             .font(.subheadline)
                             .textCase(nil)
                         }
+                    }
+                }
+
+                if !displayFilters.isEmpty {
+                    Section {
+                        ForEach(displayFilters) { filter in
+                            filterRow(filter)
+                                .swipeActions(edge: .trailing) {
+                                    Button(role: .destructive) {
+                                        withAnimation {
+                                            removeFilter(filter)
+                                        }
+                                    } label: {
+                                        Label("Remove", systemImage: "trash")
+                                    }
+                                }
+                                .swipeActions(edge: .leading) {
+                                    Button {
+                                        toggleFilterFavourite(filter)
+                                    } label: {
+                                        Label(
+                                            filter.isFavourite ? "Unfavourite" : "Favourite",
+                                            systemImage: filter.isFavourite ? "star.slash" : "star.fill"
+                                        )
+                                    }
+                                    .tint(.yellow)
+                                }
+                        }
+                    } header: {
+                        sectionHeader("Saved Filters", icon: "line.3.horizontal.decrease.circle.fill")
                     }
                 }
 
@@ -417,5 +477,37 @@ struct ContentView: View {
         .contextMenu {
             stationContextMenu(for: station)
         }
+    }
+
+    private func filterRow(_ filter: SavedFilter) -> some View {
+        Button {
+            if let station = viewModel.stations.first(where: { $0.crsCode == filter.stationCrs }),
+               let filterStn = viewModel.stations.first(where: { $0.crsCode == filter.filterCrs }) {
+                navigationPath.append(StationDestination(
+                    station: station,
+                    boardType: .departures,
+                    filterStation: filterStn,
+                    filterType: filter.filterType
+                ))
+            }
+        } label: {
+            HStack(spacing: 8) {
+                crsPill(filter.stationCrs)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(filter.stationName)
+                        .font(.headline)
+                    Text("\(filter.filterType == "to" ? "Calling at" : "From") \(filter.filterName)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if filter.isFavourite {
+                    Image(systemName: "star.fill")
+                        .foregroundStyle(.yellow)
+                        .font(.subheadline)
+                }
+            }
+        }
+        .foregroundStyle(.primary)
     }
 }

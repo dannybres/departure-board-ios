@@ -12,6 +12,8 @@ struct DepartureBoardView: View {
     let station: Station
     var initialBoardType: BoardType = .departures
     var pendingServiceID: String?
+    var initialFilterStation: Station?
+    var initialFilterType: String?
     @Binding var navigationPath: NavigationPath
 
     // MARK: - State
@@ -28,12 +30,16 @@ struct DepartureBoardView: View {
     @State private var filterType: String = "to"
     @State private var showFilterSheet = false
 
-    init(station: Station, initialBoardType: BoardType = .departures, pendingServiceID: String? = nil, navigationPath: Binding<NavigationPath>) {
+    init(station: Station, initialBoardType: BoardType = .departures, pendingServiceID: String? = nil, initialFilterStation: Station? = nil, initialFilterType: String? = nil, navigationPath: Binding<NavigationPath>) {
         self.station = station
         self.initialBoardType = initialBoardType
         self.pendingServiceID = pendingServiceID
+        self.initialFilterStation = initialFilterStation
+        self.initialFilterType = initialFilterType
         self._navigationPath = navigationPath
         _selectedBoard = State(initialValue: initialBoardType)
+        _filterStation = State(initialValue: initialFilterStation)
+        _filterType = State(initialValue: initialFilterType ?? "to")
     }
 
     var body: some View {
@@ -234,6 +240,7 @@ struct DepartureBoardView: View {
                 onSelect: { selected in
                     filterStation = selected
                     showFilterSheet = false
+                    SavedFilter.addRecent(stationCrs: station.crsCode, stationName: station.name, filterCrs: selected.crsCode, filterName: selected.name, filterType: filterType)
                     Task { await loadBoard(type: selectedBoard) }
                 }
             )
@@ -316,6 +323,7 @@ struct DepartureBoardView: View {
                     Button {
                         filterStation = destStation
                         filterType = "to"
+                        SavedFilter.addRecent(stationCrs: station.crsCode, stationName: station.name, filterCrs: destination.crs, filterName: destination.locationName, filterType: "to")
                         Task { await loadBoard(type: selectedBoard) }
                     } label: {
                         Label("Filter to \(destination.locationName)", systemImage: "line.3.horizontal.decrease.circle")
