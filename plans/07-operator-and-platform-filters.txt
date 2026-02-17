@@ -1,0 +1,126 @@
+FEATURE: Filter by Operator & Platform
+========================================
+
+SUMMARY
+-------
+Add client-side filters to the departure/arrival board so users can
+narrow services by train operator (e.g. only show South Western Railway)
+or by platform (e.g. only Platform 1-4). These work alongside the
+server-side calling point filter from Feature 02.
+
+WHY
+---
+Large stations like London Waterloo show dozens of services from multiple
+operators. Commuters usually only care about one operator. Platform
+filtering is useful when you're already at the station and know which
+platform group you need.
+
+HOW IT WORKS
+------------
+- Filter bar below the navigation title (or as a horizontally scrollable
+  chip row above the service list).
+- Chips auto-populated from the current board data:
+  - Operators: extract unique `service.operator` values from loaded board.
+  - Platforms: extract unique `service.platform` values, sorted naturally.
+- Tapping a chip toggles it on (highlighted in brand colour). Multiple
+  selection allowed.
+- When filters active, services not matching are hidden (client-side
+  filtering of the already-loaded board.trainServices.service array).
+- A "Clear filters" chip appears when any filter is active.
+- Filters reset when switching Departures/Arrivals or navigating away.
+
+This is purely client-side — no API changes needed. The full board is
+already loaded; we just filter the display.
+
+FILES TO MODIFY
+---------------
+1. DepartureBoardView.swift
+   - Add @State private var selectedOperators: Set<String> = []
+   - Add @State private var selectedPlatforms: Set<String> = []
+   - Computed property `filteredServices` that applies both filters.
+   - Replace `board?.trainServices?.service` with `filteredServices` in
+     the ForEach.
+   - Add filter chip bar as a Section at the top of the List, or as a
+     .safeAreaInset(edge: .top) with horizontal ScrollView.
+   - Reset filters in .onChange(of: selectedBoard).
+
+UI DESIGN
+---------
+Filter chip bar (horizontal scroll, above service list):
+
+  ┌──────────────────────────────────────────────┐
+  │ [SWR] [GWR] [SE] | [Plat 1] [Plat 2] [Clear]│
+  └──────────────────────────────────────────────┘
+
+Each chip:
+  Text(label)
+    .font(.caption.weight(.semibold))
+    .padding(.horizontal, 10)
+    .padding(.vertical, 5)
+    .background(isSelected ? Theme.brand : Theme.brandSubtle,
+                in: Capsule())
+    .foregroundStyle(isSelected ? .white : .primary)
+
+The chip bar only appears after the board has loaded and there are
+multiple unique operators or platforms. If there's only one operator
+and one platform, don't show the bar at all.
+
+Separator between operator chips and platform chips: a thin vertical
+divider or just extra spacing.
+
+IMPLEMENTATION DETAIL
+---------------------
+Computed property:
+
+  private var filteredServices: [Service] {
+      guard let services = board?.trainServices?.service else { return [] }
+      return services.filter { service in
+          (selectedOperators.isEmpty ||
+           selectedOperators.contains(service.operatorCode)) &&
+          (selectedPlatforms.isEmpty ||
+           selectedPlatforms.contains(service.platform ?? ""))
+      }
+  }
+
+Use `operatorCode` (e.g. "SW") for matching but display `operator`
+(e.g. "South Western Railway") in the chip — or use the short code as
+the chip label to save space. Could show full name on long-press.
+
+Available operators and platforms:
+
+  private var availableOperators: [(code: String, name: String)] {
+      guard let services = board?.trainServices?.service else { return [] }
+      let unique = Dictionary(grouping: services, by: \.operatorCode)
+      return unique.keys.sorted().map { code in
+          (code, unique[code]!.first!.operator)
+      }
+  }
+
+  private var availablePlatforms: [String] {
+      guard let services = board?.trainServices?.service else { return [] }
+      return Array(Set(services.compactMap(\.platform)))
+          .sorted { Int($0) ?? 0 < Int($1) ?? 0 }
+  }
+
+EDGE CASES
+----------
+- Some services have no platform (nil) — show a "No Plat" chip? Or just
+  exclude platformless services from platform filtering (they always show
+  unless a platform filter is active).
+- Operator codes like "SW" are short but some may be ambiguous. Use the
+  full operator name as an accessibility label.
+- If all services are filtered out, show "No services match filters"
+  with a "Clear Filters" button.
+- Natural sort for platforms: "1", "2", "10" not "1", "10", "2".
+- Platform letters (e.g. "1A", "1B") should sort correctly.
+
+INTERACTION WITH OTHER FEATURES
+--------------------------------
+- Feature 01 (time offset): filters apply to the offset-loaded board.
+- Feature 02 (calling point filter): server-side filter reduces the
+  board first, then client-side operator/platform filters narrow further.
+- All three filters can be active simultaneously.
+
+ESTIMATED SCOPE
+---------------
+~100 lines in DepartureBoardView.swift. No new files needed.

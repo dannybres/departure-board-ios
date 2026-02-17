@@ -1,0 +1,157 @@
+FEATURE: Lock Screen & Small/Medium Widgets
+=============================================
+
+SUMMARY
+-------
+Add Lock Screen widgets (accessoryRectangular, accessoryCircular,
+accessoryInline) and systemSmall / systemMedium home screen sizes so
+users have more widget options beyond the current large-only widgets.
+
+WHY
+---
+The large widget is great but takes a lot of home screen space. Many
+users want a glanceable small widget showing just the next 1-2 trains,
+or a Lock Screen widget they can see without unlocking. These are the
+most common widget sizes used in practice.
+
+WIDGET VARIANTS
+---------------
+
+1. accessoryInline (Lock Screen, single line)
+   - Shows: "14:30 → Portsmouth · On time"
+   - Next departure from configured station.
+   - Taps through to station board.
+
+2. accessoryRectangular (Lock Screen, small rectangle)
+   - Shows 2-3 departures in compact rows:
+     "14:30 Portsmouth    Plat 3"
+     "14:45 Exeter        Plat 7"
+     "15:00 Bristol     Delayed"
+   - Station name as tiny header.
+
+3. accessoryCircular (Lock Screen, small circle)
+   - Shows next departure time prominently: "14:30"
+   - Small text below: platform or delay indicator.
+   - Colour-coded ring: green = on time, orange = delayed, red = cancelled.
+
+4. systemSmall (Home Screen)
+   - Station name header in brand colour.
+   - Next 2 departures with time, destination (truncated), status.
+   - Platform badge.
+   - Tap → deep link to station.
+
+5. systemMedium (Home Screen)
+   - Station name header.
+   - Next 3-4 departures with full destination name, time, platform, status.
+   - Same row layout as the large widget but with fewer rows.
+   - Tap service row → deep link to service.
+
+FILES TO MODIFY
+---------------
+1. DepartureBoardWidget.swift
+   - Add .systemSmall and .systemMedium to SingleStationWidget's
+     supportedFamilies.
+   - Add accessory families to a new LockScreenWidget definition.
+   - Adjust SingleStationWidgetView to adapt layout based on widget
+     family using @Environment(\.widgetFamily).
+   - Create new views for each accessory variant.
+
+2. DepartureBoardWidgetBundle.swift
+   - Register the new LockScreenWidget.
+
+IMPLEMENTATION
+--------------
+
+SingleStationWidgetView adapts by family:
+
+  @Environment(\.widgetFamily) var family
+
+  var body: some View {
+      switch family {
+      case .systemSmall:
+          SmallWidgetView(station: station)
+      case .systemMedium:
+          MediumWidgetView(station: station)
+      case .systemLarge:
+          // existing layout
+      case .accessoryRectangular:
+          RectangularWidgetView(station: station)
+      case .accessoryCircular:
+          CircularWidgetView(station: station)
+      case .accessoryInline:
+          InlineWidgetView(station: station)
+      default:
+          // fallback
+      }
+  }
+
+Alternatively, create separate Widget structs for Lock Screen vs Home
+Screen to allow independent configuration (recommended — keeps things
+clean and allows different supportedFamilies per widget).
+
+Lock Screen widgets use a more limited design palette — no colours
+(rendered as grayscale), limited text, AccessoryWidgetBackground for
+backgrounds.
+
+SmallWidgetView:
+  VStack(alignment: .leading, spacing: 4) {
+      Text(station.name)
+          .font(.system(.caption2, design: .rounded).bold())
+      ForEach(station.services.prefix(2)) { service in
+          HStack {
+              Text(service.scheduled).font(.caption.monospaced().bold())
+              Text(service.destination).font(.caption2).lineLimit(1)
+              Spacer()
+              statusIndicator(service)
+          }
+      }
+      Spacer()
+      Text("Updated \(entry.date, style: .time)")
+          .font(.system(size: 8))
+          .foregroundStyle(.tertiary)
+  }
+
+MediumWidgetView:
+  VStack(alignment: .leading, spacing: 3) {
+      Text(station.name).font(.caption.bold()).foregroundStyle(brand)
+      ForEach(station.services.prefix(4)) { service in
+          // Same as large widget row but slightly more compact
+          WidgetDepartureRow(service: service, compact: true)
+      }
+  }
+
+NUM ROWS PER SIZE
+-----------------
+- systemSmall: fetch 2 services
+- systemMedium: fetch 4 services
+- systemLarge: fetch 6 (single) or 3 (dual) — unchanged
+- accessoryRectangular: fetch 3 services
+- accessoryCircular: fetch 1 service
+- accessoryInline: fetch 1 service
+
+The provider should pass different numRows based on context.family.
+Since we're using AppIntentTimelineProvider, we can check
+context.family in snapshot() and timeline() to determine row count.
+
+Wait — the current providers don't have access to the widget family
+from context in a generic way. Solution: use a single provider that
+reads context.family and adjusts, or keep separate providers per size
+group. The simplest approach: add the family sizes to supportedFamilies
+and use @Environment(\.widgetFamily) in the view to decide layout,
+while the provider fetches a reasonable max (6) and the view slices.
+
+EDGE CASES
+----------
+- Lock Screen widgets are grayscale — brand colours won't render. Use
+  AccessoryWidgetBackground and primary/secondary styles only.
+- systemSmall has very limited space — truncate station names and
+  destinations aggressively.
+- accessoryInline is a single line — pick the most useful info.
+- DualStationWidget should NOT support small/medium (not enough space
+  for two stations). Only add new sizes to SingleStationWidget and a
+  new LockScreenWidget.
+
+ESTIMATED SCOPE
+---------------
+~150 lines of new view code in DepartureBoardWidget.swift (or split
+into a separate file). ~20 lines modifying existing widget definitions.

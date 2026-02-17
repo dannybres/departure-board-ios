@@ -24,6 +24,9 @@ struct DepartureBoardView: View {
     @State private var stationInfoCrs: String?
     @State private var didAutoNavigate = false
     @State private var timeOffset: Int? = nil
+    @State private var filterStation: Station? = nil
+    @State private var filterType: String = "to"
+    @State private var showFilterSheet = false
 
     init(station: Station, initialBoardType: BoardType = .departures, pendingServiceID: String? = nil, navigationPath: Binding<NavigationPath>) {
         self.station = station
@@ -107,8 +110,22 @@ struct DepartureBoardView: View {
                     .padding()
                     .frame(maxWidth: .infinity)
             } else if !isLoading {
-                Text("No services available")
-                    .foregroundStyle(.secondary)
+                if let filterStation {
+                    VStack(spacing: 12) {
+                        Text("No trains \(filterType == "to" ? "calling at" : "from") \(filterStation.name)")
+                            .foregroundStyle(.secondary)
+                        Button("Clear Filter") {
+                            self.filterStation = nil
+                            Task { await loadBoard(type: selectedBoard) }
+                        }
+                        .foregroundStyle(Theme.brand)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                } else {
+                    Text("No services available")
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .listStyle(.insetGrouped)
@@ -124,35 +141,71 @@ struct DepartureBoardView: View {
             }
         }
         .safeAreaInset(edge: .top) {
-            if let offset = timeOffset, offset != 0 {
-                Button {
-                    timeOffset = nil
-                    Task { await loadBoard(type: selectedBoard) }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "clock")
-                            .font(.caption2)
-                        Text("Showing from \(showingFromTime)")
-                            .font(.caption.weight(.semibold))
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+            let showTimeOffset = (timeOffset ?? 0) != 0
+            let showFilter = filterStation != nil
+            if showTimeOffset || showFilter {
+                HStack(spacing: 8) {
+                    if showTimeOffset {
+                        Button {
+                            timeOffset = nil
+                            Task { await loadBoard(type: selectedBoard) }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "clock")
+                                    .font(.caption2)
+                                Text("From \(showingFromTime)")
+                                    .font(.caption.weight(.semibold))
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(.ultraThinMaterial, in: Capsule())
+                        }
+                        .transition(.move(edge: .top).combined(with: .opacity))
                     }
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    if showFilter {
+                        Button {
+                            filterStation = nil
+                            Task { await loadBoard(type: selectedBoard) }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "line.3.horizontal.decrease.circle.fill")
+                                    .font(.caption2)
+                                    .foregroundStyle(Theme.brand)
+                                Text(filterChipLabel)
+                                    .font(.caption.weight(.semibold))
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(.ultraThinMaterial, in: Capsule())
+                        }
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
                 }
-                .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
         .animation(.easeInOut(duration: 0.25), value: timeOffset)
+        .animation(.easeInOut(duration: 0.25), value: filterStation?.crsCode)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showInfo = true
-                } label: {
-                    Image(systemName: "info.circle")
+                HStack(spacing: 16) {
+                    Button {
+                        showFilterSheet = true
+                    } label: {
+                        Image(systemName: filterStation != nil ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    }
+                    Button {
+                        showInfo = true
+                    } label: {
+                        Image(systemName: "info.circle")
+                    }
                 }
             }
         }
@@ -173,6 +226,17 @@ struct DepartureBoardView: View {
                     navigationPath.append(StationDestination(station: station, boardType: boardType))
                 }
             })
+        }
+        .sheet(isPresented: $showFilterSheet) {
+            FilterStationSheet(
+                currentStationCrs: station.crsCode,
+                filterType: $filterType,
+                onSelect: { selected in
+                    filterStation = selected
+                    showFilterSheet = false
+                    Task { await loadBoard(type: selectedBoard) }
+                }
+            )
         }
         .safeAreaInset(edge: .bottom, alignment: .leading) {
             Picker("Board Type", selection: $selectedBoard) {
@@ -204,6 +268,7 @@ struct DepartureBoardView: View {
         .onChange(of: selectedBoard) {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             timeOffset = nil
+            filterStation = nil
             Task {
                 await loadBoard(type: selectedBoard, showLoading: true)
             }
@@ -245,6 +310,17 @@ struct DepartureBoardView: View {
         if let destination = service.destination.location.first {
             Section(destination.locationName) {
                 stationMenuButtons(crs: destination.crs, name: destination.locationName)
+
+                if destination.crs != station.crsCode,
+                   let destStation = StationCache.load()?.first(where: { $0.crsCode == destination.crs }) {
+                    Button {
+                        filterStation = destStation
+                        filterType = "to"
+                        Task { await loadBoard(type: selectedBoard) }
+                    } label: {
+                        Label("Filter to \(destination.locationName)", systemImage: "line.3.horizontal.decrease.circle")
+                    }
+                }
             }
         }
     }
@@ -274,6 +350,11 @@ struct DepartureBoardView: View {
 
     // MARK: - Helper Methods
 
+    private var filterChipLabel: String {
+        let name = board?.filterLocationName ?? filterStation?.name ?? ""
+        return filterType == "to" ? "Calling at \(name)" : "From \(name)"
+    }
+
     private var showingFromTime: String {
         let offsetDate = Date().addingTimeInterval(Double(timeOffset ?? 0) * 60)
         let offsetString = offsetDate.formatted(date: .omitted, time: .shortened)
@@ -289,7 +370,7 @@ struct DepartureBoardView: View {
     private func loadBoard(type: BoardType, showLoading: Bool = false) async {
         if showLoading { isLoading = true }
         do {
-            let result = try await StationViewModel.fetchBoard(for: station.crsCode, type: type, timeOffset: timeOffset)
+            let result = try await StationViewModel.fetchBoard(for: station.crsCode, type: type, filterCrs: filterStation?.crsCode, filterType: filterStation != nil ? filterType : nil, timeOffset: timeOffset)
             withAnimation(.easeInOut(duration: 0.3)) {
                 board = result
                 errorMessage = nil

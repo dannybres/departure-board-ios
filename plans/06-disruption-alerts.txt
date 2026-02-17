@@ -1,0 +1,125 @@
+FEATURE: Disruption Alerts & Push Notifications
+=================================================
+
+SUMMARY
+-------
+Proactively notify users when their favourite stations or tracked
+services are disrupted. Show a prominent alerts banner on the home screen
+and optionally send local notifications for cancellations and significant
+delays.
+
+WHY
+---
+Right now the app is entirely pull-based — you have to open it to see
+if something is wrong. Commuters want to know *before* they leave the
+house that their usual train is cancelled.
+
+HOW IT WORKS
+------------
+
+Part 1: In-App Alerts Banner
+- On app launch / foreground resume, fetch the departure board for each
+  favourite station (limit to first 3 favourites to avoid hammering API).
+- Scan services for cancellations and severe delays (>15 min).
+- If any found, show a red/amber banner at the top of ContentView:
+  "⚠ 3 cancellations at London Waterloo" — tappable to go to that board.
+- Collapsible: tap to expand and see a summary list of affected services.
+- Dismissible per session.
+
+Part 2: Background Refresh & Local Notifications
+- Register for BGAppRefreshTask (background fetch).
+- Every 15 minutes (iOS decides actual frequency), fetch boards for
+  favourite stations.
+- Compare against last known state.
+- If a new cancellation or major delay appears, fire a local notification:
+  "14:30 to Portsmouth from Waterloo has been cancelled"
+- Tapping the notification deep links to the service.
+- User can toggle this on/off in Settings.
+
+Part 3: Station Alerts from API
+- The StationInfo API already returns StationAlerts with AlertText.
+- Show these prominently on the DepartureBoardView for the current
+  station — a collapsible yellow/red banner above the service list.
+- Also show on the home screen if any favourite station has active alerts
+  (requires fetching station info, so this could be expensive — consider
+  caching alert state).
+
+FILES TO CREATE
+---------------
+1. Departure Board/Alerts/DisruptionChecker.swift
+   - Fetches boards for given CRS codes.
+   - Returns list of disruptions: (stationName, serviceSummary, type:
+     cancelled|delayed, serviceID, crs).
+   - Used by both the in-app banner and background refresh.
+
+2. Departure Board/Alerts/AlertBanner.swift
+   - Reusable SwiftUI view for the disruption banner.
+   - Expandable/collapsible with animation.
+   - Red for cancellations, amber for delays.
+
+3. Departure Board/Alerts/BackgroundRefreshManager.swift
+   - Registers BGAppRefreshTask.
+   - Schedules next refresh.
+   - Calls DisruptionChecker and fires UNUserNotificationCenter locals.
+
+FILES TO MODIFY
+---------------
+4. ContentView.swift
+   - Add AlertBanner at the top of the station list.
+   - Trigger disruption check on appear / scenePhase change.
+
+5. DepartureBoardView.swift
+   - Show station alerts (from StationInfo API) as a banner above the
+     service list when available.
+
+6. SettingsView.swift
+   - Add "Notifications" section with toggle for disruption alerts.
+   - Permission request flow (UNUserNotificationCenter.requestAuth).
+
+7. Departure_BoardApp.swift
+   - Register background task in init or scene delegate.
+
+8. Info.plist
+   - Add BGTaskSchedulerPermittedIdentifiers.
+
+9. SharedDefaults.swift
+   - Add keys for notification preferences and last disruption state.
+
+UI DESIGN
+---------
+Alert banner (ContentView top):
+┌──────────────────────────────────────────┐
+│ ⚠  2 cancellations at Waterloo     ▼    │
+│    14:30 to Portsmouth — Cancelled       │
+│    15:00 to Exeter — Cancelled           │
+└──────────────────────────────────────────┘
+Red background, white text, rounded corners, tappable rows deep link
+to the service.
+
+Station alert banner (DepartureBoardView):
+┌──────────────────────────────────────────┐
+│ ℹ  Reduced service due to staff          │
+│    shortage. Check journey before...     │
+└──────────────────────────────────────────┘
+Amber/yellow background, dark text. Pulled from StationInfo.StationAlerts.
+
+Local notification:
+  Title: "Train Cancelled"
+  Body: "14:30 London Waterloo → Portsmouth Harbour has been cancelled"
+  Category action: "View Service" (deep links)
+
+EDGE CASES
+----------
+- Don't spam notifications: only alert once per disruption (track by
+  serviceID + disruption type in a local set, expire after 4 hours).
+- Background fetch timing is at iOS's discretion — may not be exactly
+  every 15 min. Set a reasonable expectation in Settings UI.
+- If the user has no favourites, skip the background check entirely.
+- Rate limit: max 3 stations checked per background refresh.
+- Notification permission denied: show the banner in-app still, just
+  skip the local notification.
+
+ESTIMATED SCOPE
+---------------
+3 new files (~200 lines total), ~60 lines across existing files.
+Medium-high complexity due to BGTaskScheduler and notification handling.

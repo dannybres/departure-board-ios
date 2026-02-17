@@ -1,0 +1,107 @@
+FEATURE: Live Activity & Dynamic Island Journey Tracker
+========================================================
+
+SUMMARY
+-------
+When viewing a service detail, add a "Track this train" button that
+starts a Live Activity on the Lock Screen and Dynamic Island. It shows
+real-time progress of your train: current status, next stop, expected
+arrival at your destination, and delay info. Updates every 60 seconds.
+
+WHY
+---
+Once you're on a train, you lock your phone. A Live Activity means you
+can glance at the Lock Screen or Dynamic Island to see if your train is
+delayed, what the next stop is, and your expected arrival — without
+opening the app.
+
+HOW IT WORKS
+------------
+- "Track this train" button in ServiceDetailView (below the timeline,
+  or as a toolbar button).
+- Tapping it starts a Live Activity using ActivityKit.
+- The activity shows:
+  - Lock Screen / Expanded Island: origin → destination, scheduled vs
+    expected arrival, current/next calling point, platform, delay reason.
+  - Compact Leading: departure time.
+  - Compact Trailing: expected arrival or "Delayed".
+  - Minimal: train icon with delay colour.
+- A background task polls /api/service/{id} every 60 seconds and pushes
+  ContentState updates.
+- The activity ends automatically when the train reaches its final
+  destination (last calling point has an actual time), or after 4 hours
+  (ActivityKit max), or when the user taps "Stop Tracking".
+
+FILES TO CREATE
+---------------
+1. Departure Board/LiveActivity/JourneyAttributes.swift
+   - ActivityAttributes struct with:
+     Fixed: serviceID, origin name, destination name, scheduledArrival
+     ContentState: currentStop, nextStop, expectedArrival, delayReason?,
+       platform?, status (onTime/delayed/cancelled)
+
+2. Departure Board/LiveActivity/JourneyLiveActivity.swift
+   - The Widget conformance for the Live Activity UI.
+   - Lock Screen: horizontal progress bar with station dots, origin and
+     destination labels, scheduled vs expected times.
+   - Dynamic Island expanded: same layout compressed.
+   - Compact/Minimal views.
+
+3. Departure Board/LiveActivity/JourneyTracker.swift
+   - Manager class that handles starting, updating, and ending the
+     activity.
+   - Uses a Timer or BGAppRefreshTask to poll the service endpoint.
+   - Parses calling points to determine current position.
+
+FILES TO MODIFY
+---------------
+4. ServiceDetailView.swift
+   - Add "Track this train" / "Stop tracking" button.
+   - Observe JourneyTracker state to toggle button label.
+
+5. DepartureBoardWidgetBundle.swift
+   - Already deleted the template Live Activity — need to re-register
+     the new one in the widget bundle (or register it separately if
+     using the main app target).
+
+6. Info.plist
+   - NSSupportsLiveActivities = YES (if not already set).
+
+UI DESIGN
+---------
+Lock Screen banner:
+┌─────────────────────────────────────────┐
+│ 🚂 14:30 Waterloo → Portsmouth Harbour  │
+│ ○───○───●───○───○───○                   │
+│ Next: Guildford (expected 15:12)        │
+│ Arriving: 15:47 (was 15:32) · 15 min   │
+│                              delayed    │
+└─────────────────────────────────────────┘
+
+Dynamic Island compact:
+  Leading: "14:30"  Trailing: "Exp 15:47"
+
+EDGE CASES
+----------
+- If the service is cancelled mid-journey, update the Live Activity to
+  show cancelled state with the cancellation reason, then end it.
+- Multiple simultaneous tracked trains: ActivityKit supports multiple
+  activities, but limit to 2 to avoid clutter.
+- If the app is terminated, the Live Activity persists but updates stop.
+  Use push notifications via APNs as a fallback (requires server support,
+  so initially just accept that updates stop if the app is killed).
+- API rate limiting: poll no more than once per 60 seconds.
+
+DEPENDENCIES
+------------
+- Requires iOS 16.1+ (already targeting higher).
+- The widget extension already exists; the Live Activity can be
+  registered there.
+- No server-side push notification support needed initially (polling
+  only), but worth noting as a future enhancement.
+
+ESTIMATED SCOPE
+---------------
+3 new files (~250 lines total), ~30 lines in ServiceDetailView.
+Medium complexity — ActivityKit API is straightforward but the polling
+and state management need care.

@@ -1,0 +1,104 @@
+FEATURE: Recently Viewed Stations & Journeys
+==============================================
+
+SUMMARY
+-------
+Track which stations the user visits and show them in a "Recent" section
+on the home screen, between Favourites and Nearby. Also track recent
+station pairs (e.g. "Waterloo → Portsmouth") so users can quickly re-check
+a common journey's status.
+
+WHY
+---
+Users often check the same 3-4 stations but don't want to favourite all
+of them. "Recent" is zero-effort — just show what they looked at. The
+journey pairs are even more useful: one tap to see "are there trains from
+A to B right now?" which combines the station board with the calling
+point filter from Feature 02.
+
+HOW IT WORKS
+------------
+Recent Stations:
+- Every time the user navigates to a DepartureBoardView, record the
+  station CRS + timestamp in SharedDefaults.
+- Show the last 5 unique stations (excluding favourites) in a "Recent"
+  section on the home screen.
+- Each row is identical to a normal station row with full context menu.
+- "Clear Recents" button in the section header.
+- Recents are stored in the shared suite so widgets could use them too.
+
+Recent Journeys:
+- When a user views a service detail, record the pair:
+  (origin CRS, destination CRS, timestamp).
+- Show last 3 unique journeys in a "Recent Journeys" subsection.
+- Each row shows "Origin → Destination" with a tap action that navigates
+  to the origin's departure board with a filter set to the destination
+  CRS (leveraging Feature 02's filter).
+- If Feature 02 is not yet implemented, tapping just goes to the origin
+  board without a filter.
+
+FILES TO CREATE
+---------------
+1. Departure Board/RecentStore.swift
+   - Static methods: recordStation(crs:), recordJourney(from:to:),
+     recentStations() -> [(crs: String, date: Date)],
+     recentJourneys() -> [(from: String, to: String, date: Date)],
+     clearStations(), clearJourneys().
+   - Stored in SharedDefaults.shared under keys "recentStations" and
+     "recentJourneys".
+   - Max 10 stations, 5 journeys. Deduplicated, most recent first.
+
+FILES TO MODIFY
+---------------
+2. ContentView.swift
+   - Add "Recent" section between Favourites and Nearby.
+   - Filter out stations that are already in Favourites.
+   - "Clear" button in section header.
+   - Optional "Recent Journeys" section with origin → destination rows.
+
+3. DepartureBoardView.swift
+   - Call RecentStore.recordStation(crs:) in .onAppear or .task.
+
+4. ServiceDetailView.swift
+   - Call RecentStore.recordJourney(from:to:) when detail loads, using
+     origin and destination from the service.
+
+5. SharedDefaults.swift
+   - Add key constants for recentStations and recentJourneys.
+
+UI DESIGN
+---------
+Recent Stations section:
+  Same as the existing station rows (CRS pill + name), with the section
+  header: Label("Recent", systemImage: "clock.arrow.circlepath") + Clear.
+
+Recent Journeys section (if implemented):
+  HStack {
+    crsPill(from)
+    Text(originName)
+    Image(systemName: "arrow.right")
+      .font(.caption)
+      .foregroundStyle(.secondary)
+    crsPill(to)
+    Text(destName)
+  }
+
+EDGE CASES
+----------
+- Don't record the auto-navigated nearby station as "recent" (it wasn't
+  a deliberate user choice). Check hasPushedNearbyStation or add a flag.
+- If a station is later added to favourites, remove it from recents.
+- Recent journeys with the same pair but different services should
+  deduplicate (keep latest timestamp).
+- When station cache refreshes and a CRS no longer exists (rare),
+  silently skip it in the UI.
+
+DATA FORMAT
+-----------
+recentStations: JSON array of { "crs": "WAT", "date": "2026-02-16T..." }
+recentJourneys: JSON array of { "from": "WAT", "to": "PMH", "date": "..." }
+
+ESTIMATED SCOPE
+---------------
+1 new file (~60 lines), ~50 lines across ContentView, DepartureBoardView,
+ServiceDetailView. Small–medium scope.

@@ -21,6 +21,7 @@ enum TimelineState {
 struct TimelineIndicator: View {
     let position: TimelinePosition
     let state: TimelineState
+    var isCurrent: Bool = false
     private let circleSize: CGFloat = 20
     private let lineWidth: CGFloat = 2
     private let columnWidth: CGFloat = 30
@@ -72,9 +73,16 @@ struct TimelineIndicator: View {
     private var circleView: some View {
         switch state {
         case .past:
-            Circle()
-                .fill(Theme.brand)
-                .frame(width: circleSize, height: circleSize)
+            ZStack {
+                Circle()
+                    .fill(Theme.brand)
+                    .frame(width: circleSize, height: circleSize)
+                if isCurrent {
+                    Image(systemName: "location.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+            }
         case .current:
             ZStack {
                 Circle()
@@ -381,7 +389,8 @@ struct ServiceDetailView: View {
             }
         }
 
-        shared.append(RoutePoint(crs: detail.crs, name: detail.locationName, state: .current, scheduled: detail.sta ?? detail.std, actual: detail.ata ?? detail.atd, expected: detail.eta ?? detail.etd, platform: detail.platform, cancelled: false))
+        let currentState: TimelineState = detail.atd != nil ? .past : .current
+        shared.append(RoutePoint(crs: detail.crs, name: detail.locationName, state: currentState, scheduled: detail.sta ?? detail.std, actual: detail.ata ?? detail.atd, expected: detail.eta ?? detail.etd, platform: detail.platform, cancelled: false))
 
         let branches = detail.subsequentCallingPoints?.callingPointList ?? []
         if branches.isEmpty {
@@ -391,7 +400,8 @@ struct ServiceDetailView: View {
         return branches.map { list in
             var branch = shared
             for point in list.callingPoint {
-                let state: TimelineState = point.cancelled ? .cancelled : .future
+                let isPast = point.at != nil
+                let state: TimelineState = point.cancelled ? .cancelled : (isPast ? .past : .future)
                 branch.append(RoutePoint(crs: point.crs, name: point.locationName, state: state, scheduled: point.st, actual: point.at, expected: point.et, platform: nil, cancelled: point.cancelled))
             }
             return branch
@@ -438,9 +448,11 @@ struct ServiceDetailView: View {
                     }
 
                 case .current(let d):
-                    timelineRow(position: position, state: .current) {
+                    let currentState: TimelineState = d.atd != nil ? .past : .current
+                    timelineRow(position: position, state: currentState, isCurrent: true) {
                         currentStationContent(d)
                     }
+                    .listRowBackground(Theme.brand.opacity(colorScheme == .dark ? 0.12 : 0.06))
                     .id("currentStation")
                     .contextMenu {
                         callingPointContextMenu(crs: d.crs, name: d.locationName)
@@ -455,9 +467,10 @@ struct ServiceDetailView: View {
             if !isSplitService, let branch = subsequentBranches.first {
                 ForEach(Array(branch.enumerated()), id: \.offset) { index, point in
                     let position: TimelinePosition = index == branch.count - 1 ? .last : .middle
-                    let state: TimelineState = point.cancelled ? .cancelled : .future
+                    let isPast = point.at != nil
+                    let state: TimelineState = point.cancelled ? .cancelled : (isPast ? .past : .future)
                     timelineRow(position: position, state: state) {
-                        callingPointContent(point, isPast: false)
+                        callingPointContent(point, isPast: isPast)
                     }
                     .contextMenu {
                         callingPointContextMenu(crs: point.crs, name: point.locationName)
@@ -478,9 +491,10 @@ struct ServiceDetailView: View {
                 Section {
                     ForEach(Array(branch.enumerated()), id: \.offset) { index, point in
                         let position: TimelinePosition = index == 0 ? .first : (index == branch.count - 1 ? .last : .middle)
-                        let state: TimelineState = point.cancelled ? .cancelled : .future
+                        let isPast = point.at != nil
+                        let state: TimelineState = point.cancelled ? .cancelled : (isPast ? .past : .future)
                         timelineRow(position: position, state: state) {
-                            callingPointContent(point, isPast: false)
+                            callingPointContent(point, isPast: isPast)
                         }
                         .contextMenu {
                             callingPointContextMenu(crs: point.crs, name: point.locationName)
@@ -515,9 +529,9 @@ struct ServiceDetailView: View {
         return rows
     }
 
-    private func timelineRow<Content: View>(position: TimelinePosition, state: TimelineState, @ViewBuilder content: () -> Content) -> some View {
+    private func timelineRow<Content: View>(position: TimelinePosition, state: TimelineState, isCurrent: Bool = false, @ViewBuilder content: () -> Content) -> some View {
         HStack(alignment: .center, spacing: 8) {
-            TimelineIndicator(position: position, state: state)
+            TimelineIndicator(position: position, state: state, isCurrent: isCurrent)
                 .padding(.vertical, -20)
                 .frame(maxHeight: .infinity)
 

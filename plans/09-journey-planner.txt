@@ -1,0 +1,128 @@
+FEATURE: Quick Journey Planner (A → B)
+========================================
+
+SUMMARY
+-------
+Add a "Journey" tab or mode where users pick an origin and destination
+station, and the app shows only trains that connect the two — with
+expected arrival times at the destination extracted from calling points.
+
+WHY
+---
+The current board-with-filter approach (Feature 02) shows trains calling
+at a station, but doesn't tell you what time you'll *arrive* at your
+destination. A journey planner pulls that info from the service detail's
+calling points, giving a complete picture: depart at X, arrive at Y,
+on platform Z, and whether it's delayed.
+
+HOW IT WORKS
+------------
+1. User taps a "Journey" button/tab (either in the toolbar of
+   ContentView or as a floating action button).
+2. A sheet appears with two station pickers: "From" and "To".
+   - Pre-fill "From" with nearest station or last used.
+   - Searchable station lists for both.
+   - Swap button (↕) to reverse the journey.
+3. Tapping "Search" fetches the departure board for the origin station
+   with filterCrs=destination (server-side filter).
+4. For each service returned, fetch /api/service/{id} to get calling
+   points and find the arrival time at the destination.
+5. Display results as journey cards:
+
+   ┌─────────────────────────────────────┐
+   │ 14:30 → 15:47  (1h 17m)   Plat 3  │
+   │ South Western Railway              │
+   │ ● On time                          │
+   └─────────────────────────────────────┘
+
+   Showing: departure time, arrival time, duration, platform, operator,
+   and delay status at destination.
+6. Tapping a card navigates to the full ServiceDetailView.
+
+OPTIMISATION
+------------
+Fetching service detail for every result is expensive (N+1 API calls).
+Mitigations:
+- Server-side filter with numRows=5 limits results.
+- Fetch service details in parallel with TaskGroup.
+- Show the board results immediately (without arrival times), then
+  progressively fill in arrival times as each service detail loads.
+- Cache service details briefly (5 min) to avoid re-fetching on
+  pull-to-refresh.
+
+FILES TO CREATE
+---------------
+1. Departure Board/View/JourneyPlannerView.swift
+   - The main journey planner sheet/view.
+   - Station pickers with search.
+   - Results list with journey cards.
+
+2. Departure Board/Model/JourneyResult.swift
+   - Struct: service, departureTime, arrivalTime, duration,
+     platform, operator, destinationStatus.
+
+FILES TO MODIFY
+---------------
+3. ContentView.swift
+   - Add toolbar button or floating button to open journey planner.
+   - Or add as a second tab in a TabView (bigger change).
+
+4. SharedDefaults.swift
+   - Add keys for last journey origin/destination (convenience).
+
+UI DESIGN
+---------
+Journey planner sheet:
+
+  ┌─────────────────────────────────────┐
+  │         Plan a Journey              │
+  │                                     │
+  │  From: [London Waterloo      ▼]    │
+  │                    ↕                │
+  │  To:   [Portsmouth Harbour   ▼]    │
+  │                                     │
+  │         [  Search Trains  ]         │
+  └─────────────────────────────────────┘
+
+Results (below or replacing the picker):
+
+  ┌─────────────────────────────────────┐
+  │ 14:30 ─── 1h 17m ──→ 15:47        │
+  │ South Western Railway    Platform 3 │
+  │ 🟢 On time                         │
+  ├─────────────────────────────────────┤
+  │ 15:00 ─── 1h 22m ──→ 16:22        │
+  │ South Western Railway    Platform 7 │
+  │ 🟠 Expected 16:25 (+3 min)         │
+  ├─────────────────────────────────────┤
+  │ 15:30 ─── 1h 17m ──→ 16:47        │
+  │ Great Western Railway    Platform 1 │
+  │ 🔴 Cancelled                        │
+  └─────────────────────────────────────┘
+
+EDGE CASES
+----------
+- No direct trains: if filterCrs returns empty, show "No direct trains
+  found. Try checking the departure board." (We're not implementing
+  connections/changes — that's a full journey planner like Trainline.)
+- Destination calling point not found in service detail: this shouldn't
+  happen if the API filter is working, but handle gracefully.
+- Split services: a train might split, with only one portion going to
+  the destination. Check which calling point list contains the
+  destination CRS.
+- Same station for origin and destination: show an inline error.
+- Remember the last 3 journey pairs for quick re-selection.
+
+INTERACTION WITH OTHER FEATURES
+--------------------------------
+- Feature 02 (calling point filter) provides the same server-side
+  filtering. The journey planner is essentially a richer UI on top of
+  the same filterCrs mechanism.
+- Feature 04 (recent journeys) should record journeys searched here.
+- Feature 01 (time offset) could be added to the journey planner to
+  search "trains after 16:00".
+
+ESTIMATED SCOPE
+---------------
+2 new files (~200 lines total), ~15 lines in ContentView.
+Medium complexity — the parallel service detail fetching needs care.

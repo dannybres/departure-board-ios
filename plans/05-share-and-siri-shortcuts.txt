@@ -1,0 +1,112 @@
+FEATURE: Share Links & Siri Shortcuts
+======================================
+
+SUMMARY
+-------
+Add share functionality throughout the app so users can send deep links
+to stations and services. Also donate App Intents / Siri Shortcuts so
+users can ask "Hey Siri, show departures from Waterloo" or add a
+Shortcuts automation.
+
+PART 1: SHARE SHEETS
+---------------------
+Add share buttons / context menu items that generate and share deep link
+URLs. These are the same departure:// URLs the app already handles.
+
+Where to add sharing:
+- DepartureBoardView toolbar: share the current station board link.
+- ServiceDetailView toolbar: share the specific service link.
+- Station context menus (ContentView): "Share Station" option.
+- Widget: not applicable (widgets can't show share sheets).
+
+What gets shared:
+- A formatted message with the deep link, e.g.:
+  "Departures from London Waterloo
+   departure://departures/WAT"
+- Or for a service:
+  "14:30 to Portsmouth Harbour from Waterloo
+   departure://service/WAT/{serviceID}"
+
+Implementation:
+- Use ShareLink (iOS 16+) or .share() modifier.
+- ShareLink(item: url, subject: title, message: description)
+- Add to toolbar as a share button (square.and.arrow.up icon).
+- Add to context menus as "Share" option.
+
+FILES TO MODIFY
+---------------
+1. DepartureBoardView.swift — Add ShareLink to toolbar.
+2. ServiceDetailView.swift — Add ShareLink to toolbar/info sheet.
+3. ContentView.swift — Add "Share" to station context menus.
+
+PART 2: SIRI SHORTCUTS & APP INTENTS
+--------------------------------------
+Expose key actions as App Intents so they appear in Shortcuts app and
+can be triggered by Siri.
+
+Intents to create:
+1. ShowDeparturesIntent
+   - Parameter: station (StationEntity — reuse from widget)
+   - Opens the app to that station's departure board.
+   - Siri: "Show departures from Waterloo"
+
+2. ShowArrivalsIntent
+   - Same but for arrivals.
+   - Siri: "Show arrivals at Waterloo"
+
+3. GetNextTrainIntent (returns result without opening app)
+   - Parameters: from station, to station (optional)
+   - Fetches the board, optionally filtered by destination.
+   - Returns a dialog: "The next train from Waterloo to Portsmouth
+     departs at 14:30 from platform 3, expected on time."
+   - This is a background intent — no app launch needed.
+
+4. ShowStationInfoIntent
+   - Opens station info sheet for a given station.
+
+Spotlight indexing:
+- Donate NSUserActivity for each station visited.
+- Index favourite stations in CoreSpotlight with title, subtitle (CRS),
+  and thumbnail.
+- Tapping a Spotlight result deep links into the app.
+
+FILES TO CREATE
+---------------
+1. Departure Board/Intents/ShowDeparturesIntent.swift
+2. Departure Board/Intents/ShowArrivalsIntent.swift
+3. Departure Board/Intents/GetNextTrainIntent.swift
+4. Departure Board/Intents/ShowStationInfoIntent.swift
+5. Departure Board/SpotlightIndexer.swift
+
+FILES TO MODIFY
+---------------
+6. DepartureBoardView.swift — Donate NSUserActivity on appear.
+7. ContentView.swift — Index favourites in Spotlight on change.
+8. Departure_BoardApp.swift — Handle NSUserActivity continuation.
+9. SharedDefaults.swift — Move StationEntity to shared file so both
+   widget and app intents can use it (or keep separate copies).
+
+SIRI PHRASES (auto-suggested)
+------------------------------
+- "Show departures from [station]"
+- "Show arrivals at [station]"
+- "Next train from [station]"
+- "Next train from [station] to [station]"
+- "Station info for [station]"
+
+EDGE CASES
+----------
+- StationEntity is currently defined in the widget target. For app-side
+  intents, either share the file or create a parallel definition.
+  (AppIntents framework handles this with the same entity ID.)
+- GetNextTrainIntent needs network access in the background — ensure
+  the intent is marked as needing network.
+- If no trains found, return a friendly "No departures found" dialog.
+- Spotlight results should be kept up to date — re-index when favourites
+  change and periodically clean stale entries.
+
+ESTIMATED SCOPE
+---------------
+Part 1 (sharing): ~30 lines across 3 files. Trivial.
+Part 2 (Siri/Shortcuts): 5 new files (~200 lines total), ~40 lines in
+existing files. Medium complexity.
