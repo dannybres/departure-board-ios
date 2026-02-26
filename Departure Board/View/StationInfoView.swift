@@ -71,16 +71,16 @@ struct StationInfoView: View {
                         .copyable(crs)
 
                     if let info {
-                        if let op = info.StationOperator {
+                        if let op = info.stationOperator {
                             LabeledContent("Operator", value: op)
                                 .copyable(op)
                         }
 
                         if let address = formattedAddress(info) {
-                            if let lat = Double(info.Latitude ?? ""),
-                               let lon = Double(info.Longitude ?? "") {
+                            if let lat = info.latitude,
+                               let lon = info.longitude {
                                 Button {
-                                    openInMaps(name: info.Name, lat: lat, lon: lon)
+                                    openInMaps(name: info.name, lat: lat, lon: lon)
                                 } label: {
                                     LabeledContent("Address") {
                                         Text(address)
@@ -96,12 +96,12 @@ struct StationInfoView: View {
                             }
                         }
 
-                        if let staffing = info.Staffing?.StaffingLevel {
+                        if let staffing = info.staffing?.staffingLevel {
                             LabeledContent("Staffing", value: formatStaffing(staffing))
                                 .copyable(formatStaffing(staffing))
                         }
 
-                        if info.Staffing?.ClosedCircuitTelevision?.Overall == "true" {
+                        if info.staffing?.closedCircuitTelevision?.overall == true {
                             LabeledContent("CCTV", value: "Yes")
                         }
                     }
@@ -130,7 +130,7 @@ struct StationInfoView: View {
                 }
             }
             .tint(.primary)
-            .navigationTitle(info?.Name ?? cachedStation?.name ?? crs)
+            .navigationTitle(info?.name ?? cachedStation?.name ?? crs)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -144,17 +144,17 @@ struct StationInfoView: View {
     }
 
     private var mapLatitude: Double? {
-        if let info, let lat = Double(info.Latitude ?? "") { return lat }
+        if let info, let lat = info.latitude { return lat }
         return cachedStation?.latitude
     }
 
     private var mapLongitude: Double? {
-        if let info, let lon = Double(info.Longitude ?? "") { return lon }
+        if let info, let lon = info.longitude { return lon }
         return cachedStation?.longitude
     }
 
     private var mapName: String {
-        info?.Name ?? cachedStation?.name ?? crs
+        info?.name ?? cachedStation?.name ?? crs
     }
 
     @ViewBuilder
@@ -162,31 +162,29 @@ struct StationInfoView: View {
             // Group 1: Alerts, InformationSystems, CustomerService
             Group {
             // Alerts
-            if let alerts = info.StationAlerts?.AlertText?.texts, !alerts.isEmpty {
+            if let alertText = info.stationAlerts?.alertText, !alertText.isEmpty {
                 Section {
-                    ForEach(alerts, id: \.self) { alert in
-                        Text(richText(alert))
-                            .font(.subheadline)
-                            .foregroundStyle(.red)
-                            .copyable(stripHTML(alert))
-                            .listRowBackground(Color.red.opacity(0.08))
-                    }
+                    Text(richText(alertText))
+                        .font(.subheadline)
+                        .foregroundStyle(.red)
+                        .copyable(stripHTML(alertText))
+                        .listRowBackground(Color.red.opacity(0.08))
                 } header: {
                     infoSectionHeader("Alerts", icon: "exclamationmark.triangle.fill")
                 }
             }
 
-            if info.InformationSystems != nil {
+            if info.informationSystems != nil {
                 Section {
-                    if let departures = info.InformationSystems?.departureScreens {
+                    if let departures = info.informationSystems?.departureScreens {
                         LabeledContent("Departure Screens", value: departures ? "Yes" : "No")
                             .copyable(departures ? "Yes" : "No")
                     }
-                    if let arrivals = info.InformationSystems?.arrivalScreens {
+                    if let arrivals = info.informationSystems?.arrivalScreens {
                         LabeledContent("Arrival Screens", value: arrivals ? "Yes" : "No")
                             .copyable(arrivals ? "Yes" : "No")
                     }
-                    if let announcements = info.InformationSystems?.announcements {
+                    if let announcements = info.informationSystems?.announcements {
                         LabeledContent("Announcements", value: announcements ? "Yes" : "No")
                             .copyable(announcements ? "Yes" : "No")
                     }
@@ -196,7 +194,7 @@ struct StationInfoView: View {
             }
 
             // Customer Service
-            if let note = info.PassengerServices?.CustomerService?.Annotation?.Note {
+            if let note = info.passengerServices?.customerService?.annotation?.note {
                 let cleaned = stripHTML(note)
                 if !cleaned.isEmpty {
                     Section {
@@ -222,7 +220,7 @@ struct StationInfoView: View {
             // Group 2: LeftLuggage, LostProperty, TicketOffice, Facilities
             Group {
             // Left Luggage
-            if let ll = info.PassengerServices?.LeftLuggage {
+            if let ll = info.passengerServices?.leftLuggage {
                 Section {
                     serviceContactRows(service: ll)
                 } header: {
@@ -231,7 +229,7 @@ struct StationInfoView: View {
             }
 
             // Lost Property
-            if let lp = info.PassengerServices?.LostProperty {
+            if let lp = info.passengerServices?.lostProperty {
                 Section {
                     serviceContactRows(service: lp)
                 } header: {
@@ -240,9 +238,9 @@ struct StationInfoView: View {
             }
 
             // Ticket Office
-            if info.Fares?.TicketOffice != nil {
+            if info.fares?.ticketOffice != nil {
                 Section {
-                    if let locationNote = info.Fares?.TicketOffice?.Annotation?.Note {
+                    if let locationNote = info.fares?.ticketOffice?.annotation?.note {
                         let cleaned = stripHTML(locationNote)
                         if !cleaned.isEmpty {
                             Text(cleaned)
@@ -252,7 +250,7 @@ struct StationInfoView: View {
                         }
                     }
 
-                    if let advanceNote = info.Fares?.TicketOffice?.Open?.Annotation?.Note {
+                    if let advanceNote = info.fares?.ticketOffice?.open?.annotation?.note {
                         let cleaned = stripHTML(advanceNote)
                         if !cleaned.isEmpty {
                             Text(cleaned)
@@ -262,10 +260,10 @@ struct StationInfoView: View {
                         }
                     }
 
-                    if let ticketOffice = info.Fares?.TicketOffice?.Open?.DayAndTimeAvailability {
-                        ForEach(Array(ticketOffice.items.enumerated()), id: \.offset) { _, entry in
-                            if let days = entry.DayTypes?.description,
-                               let hours = entry.OpeningHours?.formatted, !hours.isEmpty {
+                    if let ticketOffice = info.fares?.ticketOffice?.open?.dayAndTimeAvailability {
+                        ForEach(Array(ticketOffice.enumerated()), id: \.offset) { _, entry in
+                            if let days = entry.dayTypes?.description,
+                               let hours = entry.openingHours?.formatted, !hours.isEmpty {
                                 LabeledContent(days, value: hours)
                                     .copyable(hours)
                             }
@@ -278,37 +276,37 @@ struct StationInfoView: View {
 
             // Facilities
             Section {
-                facilityRow("Toilets", icon: "toilet", available: info.StationFacilities?.Toilets)
-                facilityRow("WiFi", icon: "wifi", available: info.StationFacilities?.WiFi)
-                facilityRow("Waiting Room", icon: "chair.lounge", available: info.StationFacilities?.WaitingRoom)
-                facilityRow("Seated Area", icon: "sofa", available: info.StationFacilities?.SeatedArea)
-                facilityRow("Shops", icon: "bag", available: info.StationFacilities?.Shops)
-                facilityRow("Buffet / Food", icon: "fork.knife", available: info.StationFacilities?.StationBuffet)
-                facilityRow("ATM", icon: "banknote", available: info.StationFacilities?.AtmMachine)
-                facilityRow("Baby Change", icon: "figure.and.child.holdinghands", available: info.StationFacilities?.BabyChange)
-                facilityRow("Showers", icon: "shower", available: info.StationFacilities?.Showers)
-                facilityRow("Post Box", icon: "envelope", available: info.StationFacilities?.PostBox)
-                facilityRow("Trolleys", icon: "cart", available: info.StationFacilities?.Trolleys)
+                facilityRow("Toilets", icon: "toilet", available: info.stationFacilities?.toilets)
+                facilityRow("WiFi", icon: "wifi", available: info.stationFacilities?.wiFi)
+                facilityRow("Waiting Room", icon: "chair.lounge", available: info.stationFacilities?.waitingRoom)
+                facilityRow("Seated Area", icon: "sofa", available: info.stationFacilities?.seatedArea)
+                facilityRow("Shops", icon: "bag", available: info.stationFacilities?.shops)
+                facilityRow("Buffet / Food", icon: "fork.knife", available: info.stationFacilities?.stationBuffet)
+                facilityRow("ATM", icon: "banknote", available: info.stationFacilities?.atmMachine)
+                facilityRow("Baby Change", icon: "figure.and.child.holdinghands", available: info.stationFacilities?.babyChange)
+                facilityRow("Showers", icon: "shower", available: info.stationFacilities?.showers)
+                facilityRow("Post Box", icon: "envelope", available: info.stationFacilities?.postBox)
+                facilityRow("Trolleys", icon: "cart", available: info.stationFacilities?.trolleys)
 
-                if let ticketMachine = info.Fares?.TicketMachine {
+                if let ticketMachine = info.fares?.ticketMachine {
                     facilityRow("Ticket Machine", icon: "rectangle.and.hand.point.up.left", available: ticketMachine)
                 }
 
                 // First Class Lounge
-                if let lounge = info.StationFacilities?.FirstClassLounge {
-                    let hasNote = lounge.Annotation?.Note != nil
-                    let hasHours = lounge.Open?.DayAndTimeAvailability != nil
+                if let lounge = info.stationFacilities?.firstClassLounge {
+                    let hasNote = lounge.annotation?.note != nil
+                    let hasHours = lounge.open?.dayAndTimeAvailability != nil
                     if hasNote || hasHours {
                         DisclosureGroup {
-                            if let note = lounge.Annotation?.Note {
+                            if let note = lounge.annotation?.note {
                                 Text(richText(note))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
-                            if let hours = lounge.Open?.DayAndTimeAvailability {
-                                ForEach(Array(hours.items.enumerated()), id: \.offset) { _, entry in
-                                    if let days = entry.DayTypes?.description,
-                                       let time = entry.OpeningHours?.formatted, !time.isEmpty {
+                            if let hours = lounge.open?.dayAndTimeAvailability {
+                                ForEach(Array(hours.enumerated()), id: \.offset) { _, entry in
+                                    if let days = entry.dayTypes?.description,
+                                       let time = entry.openingHours?.formatted, !time.isEmpty {
                                         LabeledContent(days, value: time)
                                             .font(.caption)
                                     }
@@ -331,8 +329,8 @@ struct StationInfoView: View {
             Group {
             // Accessibility
             Section {
-                if let coverage = info.ImpairedAccess?.StepFreeAccess?.Coverage {
-                    if let note = info.ImpairedAccess?.StepFreeAccess?.Annotation?.Note {
+                if let coverage = info.impairedAccess?.stepFreeAccess?.coverage {
+                    if let note = info.impairedAccess?.stepFreeAccess?.annotation?.note {
                         DisclosureGroup {
                             Text(richText(note))
                                 .font(.caption)
@@ -347,52 +345,52 @@ struct StationInfoView: View {
                     }
                 }
 
-                if let gate = info.ImpairedAccess?.TicketGate {
-                    if let comments = info.ImpairedAccess?.TicketGateComments?.Note {
+                if let gate = info.impairedAccess?.ticketGate {
+                    if let comments = info.impairedAccess?.ticketGateComments?.note {
                         DisclosureGroup {
                             Text(richText(comments))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } label: {
-                            LabeledContent("Ticket Gates", value: gate == "true" ? "Yes" : "No")
+                            LabeledContent("Ticket Gates", value: gate ? "Yes" : "No")
                         }
                     } else {
-                        LabeledContent("Ticket Gates", value: gate == "true" ? "Yes" : "No")
+                        LabeledContent("Ticket Gates", value: gate ? "Yes" : "No")
                             .padding(.trailing, 20)
                     }
                 }
 
-                if info.ImpairedAccess?.InductionLoop == "true" {
+                if info.impairedAccess?.inductionLoop == true {
                     LabeledContent("Induction Loop", value: "Yes")
                         .padding(.trailing, 20)
                 }
 
-                facilityRow("Wheelchair Available", icon: "figure.roll", available: info.ImpairedAccess?.WheelchairsAvailable)
-                facilityRow("Ramp Access", icon: "arrow.up.right", available: info.ImpairedAccess?.RampForTrainAccess)
-                facilityRow("Accessible Ticket Machines", icon: "rectangle.and.hand.point.up.left", available: info.ImpairedAccess?.AccessibleTicketMachines)
-                facilityRow("Accessible Booking Counter", icon: "person.and.background.dotted", available: info.ImpairedAccess?.AccessibleBookingOfficeCounter)
-                facilityRow("National Key Toilets", icon: "key", available: info.ImpairedAccess?.NationalKeyToilets)
-                facilityRow("Mobility Set Down", icon: "car.side", available: info.ImpairedAccess?.ImpairedMobilitySetDown)
-                facilityRow("Customer Help Points", icon: "questionmark.circle", available: info.ImpairedAccess?.CustomerHelpPoints)
+                facilityRow("Wheelchair Available", icon: "figure.roll", available: info.impairedAccess?.wheelchairsAvailable)
+                facilityRow("Ramp Access", icon: "arrow.up.right", available: info.impairedAccess?.rampForTrainAccess)
+                facilityRow("Accessible Ticket Machines", icon: "rectangle.and.hand.point.up.left", available: info.impairedAccess?.accessibleTicketMachines)
+                facilityRow("Accessible Booking Counter", icon: "person.and.background.dotted", available: info.impairedAccess?.accessibleBookingOfficeCounter)
+                facilityRow("National Key Toilets", icon: "key", available: info.impairedAccess?.nationalKeyToilets)
+                facilityRow("Mobility Set Down", icon: "car.side", available: info.impairedAccess?.impairedMobilitySetDown)
+                facilityRow("Customer Help Points", icon: "questionmark.circle", available: info.impairedAccess?.customerHelpPoints)
 
-                annotationRow("Accessible Taxis", icon: "car.side", annotation: info.ImpairedAccess?.AccessibleTaxis)
-                annotationRow("Accessible Phones", icon: "phone", annotation: info.ImpairedAccess?.AccessiblePublicTelephones)
+                facilityRow("Accessible Taxis", icon: "car.side", available: info.impairedAccess?.accessibleTaxis)
+                facilityRow("Accessible Phones", icon: "phone", available: info.impairedAccess?.accessiblePublicTelephones)
 
                 // Staff Help
-                if let staff = info.ImpairedAccess?.StaffHelpAvailable {
-                    let hasNote = staff.Annotation?.Note != nil
-                    let hasHours = staff.Open?.DayAndTimeAvailability != nil
+                if let staff = info.impairedAccess?.staffHelpAvailable {
+                    let hasNote = staff.annotation?.note != nil
+                    let hasHours = staff.open?.dayAndTimeAvailability != nil
                     if hasNote || hasHours {
                         DisclosureGroup {
-                            if let note = staff.Annotation?.Note {
+                            if let note = staff.annotation?.note {
                                 Text(richText(note))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
-                            if let hours = staff.Open?.DayAndTimeAvailability {
-                                ForEach(Array(hours.items.enumerated()), id: \.offset) { _, entry in
-                                    if let days = entry.DayTypes?.description,
-                                       let time = entry.OpeningHours?.formatted, !time.isEmpty {
+                            if let hours = staff.open?.dayAndTimeAvailability {
+                                ForEach(Array(hours.enumerated()), id: \.offset) { _, entry in
+                                    if let days = entry.dayTypes?.description,
+                                       let time = entry.openingHours?.formatted, !time.isEmpty {
                                         LabeledContent(days, value: time)
                                             .font(.caption)
                                     }
@@ -405,18 +403,18 @@ struct StationInfoView: View {
                 }
 
                 // Helpline
-                if let helpline = info.ImpairedAccess?.Helpline {
-                    let hasNote = helpline.Annotation?.Note != nil
-                    let hasPhone = helpline.ContactDetails?.PrimaryTelephoneNumber?.TelNationalNumber != nil
-                    let hasUrl = helpline.ContactDetails?.Url != nil
+                if let helpline = info.impairedAccess?.helpline {
+                    let hasNote = helpline.annotation?.note != nil
+                    let hasPhone = helpline.contactDetails?.primaryTelephoneNumber?.telNationalNumber != nil
+                    let hasUrl = helpline.contactDetails?.url != nil
                     if hasNote || hasPhone || hasUrl {
                         DisclosureGroup {
-                            if let note = helpline.Annotation?.Note {
+                            if let note = helpline.annotation?.note {
                                 Text(richText(note))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
-                            if let phone = helpline.ContactDetails?.PrimaryTelephoneNumber?.TelNationalNumber,
+                            if let phone = helpline.contactDetails?.primaryTelephoneNumber?.telNationalNumber,
                                let url = makePhoneURL(phone) {
                                 Link(destination: url) {
                                     LabeledContent("Phone", value: phone)
@@ -424,13 +422,13 @@ struct StationInfoView: View {
                                 .font(.caption)
                                 .copyable(phone)
                             }
-                            if let contactNote = helpline.ContactDetails?.Annotation?.Note {
+                            if let contactNote = helpline.contactDetails?.annotation?.note {
                                 Text(richText(contactNote))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .copyable(stripHTML(contactNote))
                             }
-                            if let website = helpline.ContactDetails?.Url,
+                            if let website = helpline.contactDetails?.url,
                                let url = URL(string: website) {
                                 Link(destination: url) {
                                     LabeledContent("Website") {
@@ -453,25 +451,36 @@ struct StationInfoView: View {
 
             // Transport Links
             Section {
-                facilityRow("Taxi Rank", icon: "car.side", available: info.Interchange?.TaxiRank)
-                facilityRow("Bus Services", icon: "bus", available: info.Interchange?.BusServices)
-                facilityRow("Metro / Underground", icon: "tram", available: info.Interchange?.MetroServices)
-                facilityRow("Airport", icon: "airplane", available: info.Interchange?.Airport)
-                facilityRow("Car Hire", icon: "car.rear", available: info.Interchange?.CarHire)
-                facilityRow("Cycle Hire", icon: "bicycle", available: info.Interchange?.CycleHire)
+                facilityRow("Taxi Rank", icon: "car.side", available: info.interchange?.taxiRank)
+                facilityRow("Bus Services", icon: "bus", available: info.interchange?.busServices)
+                facilityRow("Metro / Underground", icon: "tram", available: info.interchange?.metroServices)
+                facilityRow("Airport", icon: "airplane", available: info.interchange?.airport)
+                facilityRow("Car Hire", icon: "car.rear", available: info.interchange?.carHire)
+                facilityRow("Cycle Hire", icon: "bicycle", available: info.interchange?.cycleHire)
 
-                annotationRow("Rail Replacement", icon: "bus.doubledecker", annotation: info.Interchange?.RailReplacementServices)
+                if let rrs = info.interchange?.railReplacementServices, let note = rrs.annotation?.note {
+                    let cleaned = stripHTML(note)
+                    if !cleaned.isEmpty {
+                        DisclosureGroup {
+                            Text(cleaned)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } label: {
+                            Label("Rail Replacement", systemImage: "bus.doubledecker")
+                        }
+                    }
+                }
 
-                if info.Interchange?.CycleStorageAvailability == "true" {
-                    let hasExtra = info.Interchange?.CycleStorageNote?.Note != nil || info.Interchange?.CycleStorageLocation != nil
+                if info.interchange?.cycleStorageAvailability == true {
+                    let hasExtra = info.interchange?.cycleStorageNote?.note != nil || info.interchange?.cycleStorageLocation != nil
                     if hasExtra {
                         DisclosureGroup {
-                            if let location = info.Interchange?.CycleStorageLocation {
+                            if let location = info.interchange?.cycleStorageLocation {
                                 Text(richText(location))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
-                            if let note = info.Interchange?.CycleStorageNote?.Note {
+                            if let note = info.interchange?.cycleStorageNote?.note {
                                 Text(richText(note))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
@@ -481,20 +490,20 @@ struct StationInfoView: View {
                                 Label("Cycle Storage", systemImage: "bicycle")
                                 Spacer()
                                 VStack(alignment: .trailing) {
-                                    if let spaces = info.Interchange?.CycleStorageSpaces {
+                                    if let spaces = info.interchange?.cycleStorageSpaces {
                                         Text("\(spaces) spaces")
                                     }
-                                    if let type = info.Interchange?.CycleStorageType?.text {
-                                        Text(type)
+                                    if let types = info.interchange?.cycleStorageType {
+                                        Text(types.joined(separator: ", "))
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
-                                    if info.Interchange?.CycleStorageSheltered == "yes" {
+                                    if info.interchange?.cycleStorageSheltered == true {
                                         Text("Sheltered")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
-                                    if info.Interchange?.CycleStorageCctv == "true" {
+                                    if info.interchange?.cycleStorageCctv == true {
                                         Text("CCTV")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
@@ -507,15 +516,15 @@ struct StationInfoView: View {
                             Label("Cycle Storage", systemImage: "bicycle")
                             Spacer()
                             VStack(alignment: .trailing) {
-                                if let spaces = info.Interchange?.CycleStorageSpaces {
+                                if let spaces = info.interchange?.cycleStorageSpaces {
                                     Text("\(spaces) spaces")
                                 }
-                                if let type = info.Interchange?.CycleStorageType?.text {
-                                    Text(type)
+                                if let types = info.interchange?.cycleStorageType {
+                                    Text(types.joined(separator: ", "))
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
-                                if info.Interchange?.CycleStorageSheltered == "yes" {
+                                if info.interchange?.cycleStorageSheltered == true {
                                     Text("Sheltered")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
@@ -525,75 +534,73 @@ struct StationInfoView: View {
                     }
                 }
 
-                if let carParks = info.Interchange?.CarPark?.items {
-                    ForEach(Array(carParks.enumerated()), id: \.offset) { _, carPark in
-                        let hasExtra = carPark.ContactDetails?.Url != nil || carPark.ContactDetails?.PrimaryTelephoneNumber?.TelNationalNumber != nil || carPark.Open?.DayAndTimeAvailability != nil
-                        if hasExtra {
-                            DisclosureGroup {
-                                if let op = carPark.Operator {
-                                    LabeledContent("Operator", value: op)
-                                        .font(.caption)
-                                        .copyable(op)
-                                }
-                                if let phone = carPark.ContactDetails?.PrimaryTelephoneNumber?.TelNationalNumber,
-                                   let url = makePhoneURL(phone) {
-                                    Link(destination: url) {
-                                        LabeledContent("Phone", value: phone)
-                                    }
+                if let carPark = info.interchange?.carPark {
+                    let hasExtra = carPark.contactDetails?.url != nil || carPark.contactDetails?.primaryTelephoneNumber?.telNationalNumber != nil || carPark.open?.dayAndTimeAvailability != nil
+                    if hasExtra {
+                        DisclosureGroup {
+                            if let op = carPark.carParkOperator {
+                                LabeledContent("Operator", value: op)
                                     .font(.caption)
-                                    .copyable(phone)
+                                    .copyable(op)
+                            }
+                            if let phone = carPark.contactDetails?.primaryTelephoneNumber?.telNationalNumber,
+                               let url = makePhoneURL(phone) {
+                                Link(destination: url) {
+                                    LabeledContent("Phone", value: phone)
                                 }
-                                if let website = carPark.ContactDetails?.Url,
-                                   let url = URL(string: website) {
-                                    Link(destination: url) {
-                                        LabeledContent("Website") {
-                                            Text(website)
-                                                .lineLimit(1)
-                                                .truncationMode(.middle)
-                                        }
-                                    }
-                                    .font(.caption)
-                                    .copyable(website)
-                                }
-                                if let hours = carPark.Open?.DayAndTimeAvailability {
-                                    ForEach(Array(hours.items.enumerated()), id: \.offset) { _, entry in
-                                        if let days = entry.DayTypes?.description,
-                                           let time = entry.OpeningHours?.formatted, !time.isEmpty {
-                                            LabeledContent(days, value: time)
-                                                .font(.caption)
-                                                .copyable(time)
-                                        }
+                                .font(.caption)
+                                .copyable(phone)
+                            }
+                            if let website = carPark.contactDetails?.url,
+                               let url = URL(string: website) {
+                                Link(destination: url) {
+                                    LabeledContent("Website") {
+                                        Text(website)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
                                     }
                                 }
-                            } label: {
-                                HStack {
-                                    Label("Car Park", systemImage: "car")
-                                    Spacer()
-                                    VStack(alignment: .trailing) {
-                                        if let name = carPark.Name {
-                                            Text(name)
-                                        }
-                                        if let spaces = carPark.Spaces {
-                                            Text("\(spaces) spaces")
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
+                                .font(.caption)
+                                .copyable(website)
+                            }
+                            if let hours = carPark.open?.dayAndTimeAvailability {
+                                ForEach(Array(hours.enumerated()), id: \.offset) { _, entry in
+                                    if let days = entry.dayTypes?.description,
+                                       let time = entry.openingHours?.formatted, !time.isEmpty {
+                                        LabeledContent(days, value: time)
+                                            .font(.caption)
+                                            .copyable(time)
                                     }
                                 }
                             }
-                        } else {
+                        } label: {
                             HStack {
                                 Label("Car Park", systemImage: "car")
                                 Spacer()
                                 VStack(alignment: .trailing) {
-                                    if let name = carPark.Name {
+                                    if let name = carPark.name {
                                         Text(name)
                                     }
-                                    if let spaces = carPark.Spaces {
+                                    if let spaces = carPark.spaces {
                                         Text("\(spaces) spaces")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
+                                }
+                            }
+                        }
+                    } else {
+                        HStack {
+                            Label("Car Park", systemImage: "car")
+                            Spacer()
+                            VStack(alignment: .trailing) {
+                                if let name = carPark.name {
+                                    Text(name)
+                                }
+                                if let spaces = carPark.spaces {
+                                    Text("\(spaces) spaces")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
                                 }
                             }
                         }
@@ -605,31 +612,31 @@ struct StationInfoView: View {
 
             // Fares Info
             Section {
-                if let zone = info.Fares?.Travelcard?.TravelcardZone {
+                if let zone = info.fares?.travelcard?.travelcardZone {
                     LabeledContent("Travelcard Zone", value: zone)
                         .copyable(zone)
                 }
 
-                if info.Fares?.PrepurchaseCollection == "true" {
+                if info.fares?.prepurchaseCollection == true {
                     LabeledContent("Pre-purchase Collection", value: "Yes")
                 }
-                if info.Fares?.SmartcardIssued == "true" {
+                if info.fares?.smartcardIssued == true {
                     LabeledContent("Smartcard", value: "Yes")
                 }
-                if info.Fares?.OysterPrePay == "true" {
+                if info.fares?.oysterPrePay == true {
                     LabeledContent("Oyster", value: "Yes")
                 }
 
-                if info.Fares?.OysterTopup == "true" {
+                if info.fares?.oysterTopup == true {
                     LabeledContent("Oyster Top-up", value: "Yes")
                 }
-                if info.Fares?.OysterValidator == "true" {
+                if info.fares?.oysterValidator == true {
                     LabeledContent("Oyster Validator", value: "Yes")
                 }
-                if info.Fares?.SmartcardTopup == "true" {
+                if info.fares?.smartcardTopup == true {
                     LabeledContent("Smartcard Top-up", value: "Yes")
                 }
-                if let comments = info.Fares?.SmartcardComments?.Note {
+                if let comments = info.fares?.smartcardComments?.note {
                     let cleaned = stripHTML(comments)
                     if !cleaned.isEmpty {
                         Text(cleaned)
@@ -639,7 +646,7 @@ struct StationInfoView: View {
                     }
                 }
 
-                if let penalty = info.Fares?.PenaltyFares?.Note {
+                if let penalty = info.fares?.penaltyFares?.note {
                     Text(richText(penalty))
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -689,21 +696,8 @@ struct StationInfoView: View {
     }
 
     @ViewBuilder
-    private func annotationRow(_ name: String, icon: String, annotation: AnnotationContainer?) -> some View {
-        if let note = annotation?.Annotation?.Note.map({ stripHTML($0) }), !note.isEmpty {
-            DisclosureGroup {
-                Text(note)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } label: {
-                Label(name, systemImage: icon)
-            }
-        }
-    }
-
-    @ViewBuilder
     private func serviceContactRows(service: ServiceContactInfo) -> some View {
-        if let phone = service.ContactDetails?.PrimaryTelephoneNumber?.TelNationalNumber,
+        if let phone = service.contactDetails?.primaryTelephoneNumber?.telNationalNumber,
            let url = makePhoneURL(phone) {
             Link(destination: url) {
                 LabeledContent("Phone", value: phone)
@@ -711,7 +705,7 @@ struct StationInfoView: View {
             .copyable(phone)
         }
 
-        if let website = service.ContactDetails?.Url,
+        if let website = service.contactDetails?.url,
            let url = URL(string: website) {
             Link(destination: url) {
                 LabeledContent("Website") {
@@ -723,7 +717,7 @@ struct StationInfoView: View {
             .copyable(website)
         }
 
-        if let hours = service.Open?.Annotation?.Note {
+        if let hours = service.open?.annotation?.note {
             let cleaned = stripHTML(hours)
             if !cleaned.isEmpty {
                 Text(cleaned)
@@ -733,10 +727,10 @@ struct StationInfoView: View {
             }
         }
 
-        if let availability = service.Open?.DayAndTimeAvailability {
-            ForEach(Array(availability.items.enumerated()), id: \.offset) { _, entry in
-                if let days = entry.DayTypes?.description,
-                   let time = entry.OpeningHours?.formatted, !time.isEmpty {
+        if let availability = service.open?.dayAndTimeAvailability {
+            ForEach(Array(availability.enumerated()), id: \.offset) { _, entry in
+                if let days = entry.dayTypes?.description,
+                   let time = entry.openingHours?.formatted, !time.isEmpty {
                     LabeledContent(days, value: time)
                         .copyable(time)
                 }
@@ -745,9 +739,9 @@ struct StationInfoView: View {
     }
 
     private func formattedAddress(_ info: StationInfo) -> String? {
-        guard let address = info.Address?.PostalAddress?.A_5LineAddress else { return nil }
-        var parts = address.Line?.lines ?? []
-        if let postcode = address.PostCode {
+        guard let address = info.address?.postalAddress?.a_5LineAddress else { return nil }
+        var parts = address.line ?? []
+        if let postcode = address.postCode {
             parts.append(postcode)
         }
         return parts.isEmpty ? nil : parts.joined(separator: "\n")
@@ -839,7 +833,7 @@ struct StationInfoView: View {
     private func loadInfo() async {
         do {
             let result = try await StationViewModel.fetchStationInfo(crs: crs)
-            print("Decoded \(crs): operator=\(result.StationOperator ?? "nil"), infoSystems=\(result.InformationSystems != nil)")
+            print("Decoded \(crs): operator=\(result.stationOperator ?? "nil"), infoSystems=\(result.informationSystems != nil)")
             info = result
             errorMessage = nil
         } catch {

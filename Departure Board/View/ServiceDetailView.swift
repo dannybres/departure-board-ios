@@ -190,8 +190,8 @@ struct ServiceDetailView: View {
 
     private var navigationTitleText: String {
         let locationName = boardType == .arrivals
-            ? service.origin.location.first?.locationName ?? "Unknown"
-            : service.destination.location.first?.locationName ?? "Unknown"
+            ? service.origin.first?.locationName ?? "Unknown"
+            : service.destination.first?.locationName ?? "Unknown"
         return "\(service.scheduled) \(locationName)"
     }
 
@@ -210,7 +210,7 @@ struct ServiceDetailView: View {
                     }
 
                     if let length = detail.length {
-                        LabeledContent("Coaches", value: length)
+                        LabeledContent("Coaches", value: "\(length)")
                     }
 
                     if let sta = detail.sta {
@@ -383,8 +383,8 @@ struct ServiceDetailView: View {
     private func routePointBranches(_ detail: ServiceDetail) -> [[RoutePoint]] {
         var shared: [RoutePoint] = []
 
-        if let previous = detail.previousCallingPoints?.callingPointList {
-            for point in previous.flatMap(\.callingPoint) {
+        if let previous = detail.previousCallingPoints, !previous.isEmpty {
+            for point in previous.flatMap({ $0 }) {
                 let state: TimelineState = point.cancelled ? .cancelled : (point.at != nil ? .past : .future)
                 shared.append(RoutePoint(crs: point.crs, name: point.locationName, state: state, scheduled: point.st, actual: point.at, expected: point.et, platform: nil, cancelled: point.cancelled))
             }
@@ -393,14 +393,14 @@ struct ServiceDetailView: View {
         let currentState: TimelineState = detail.atd != nil ? .past : .current
         shared.append(RoutePoint(crs: detail.crs, name: detail.locationName, state: currentState, scheduled: detail.sta ?? detail.std, actual: detail.ata ?? detail.atd, expected: detail.eta ?? detail.etd, platform: detail.platform, cancelled: false))
 
-        let branches = detail.subsequentCallingPoints?.callingPointList ?? []
+        let branches = detail.subsequentCallingPoints ?? []
         if branches.isEmpty {
             return [shared]
         }
 
         return branches.map { list in
             var branch = shared
-            for point in list.callingPoint {
+            for point in list {
                 let isPast = point.at != nil
                 let state: TimelineState = point.cancelled ? .cancelled : (isPast ? .past : .future)
                 branch.append(RoutePoint(crs: point.crs, name: point.locationName, state: state, scheduled: point.st, actual: point.at, expected: point.et, platform: nil, cancelled: point.cancelled))
@@ -421,7 +421,7 @@ struct ServiceDetailView: View {
     // MARK: - Calling Points (Timeline)
 
     private var subsequentBranches: [[CallingPoint]] {
-        detail?.subsequentCallingPoints?.callingPointList.map(\.callingPoint) ?? []
+        detail?.subsequentCallingPoints ?? []
     }
 
     private var isSplitService: Bool {
@@ -520,8 +520,8 @@ struct ServiceDetailView: View {
     private func buildPreCurrentRows(_ detail: ServiceDetail) -> [TimelineRow] {
         var rows: [TimelineRow] = []
 
-        if let previous = detail.previousCallingPoints?.callingPointList {
-            for point in previous.flatMap(\.callingPoint) {
+        if let previous = detail.previousCallingPoints, !previous.isEmpty {
+            for point in previous.flatMap({ $0 }) {
                 rows.append(.previous(point))
             }
         }
@@ -571,7 +571,7 @@ struct ServiceDetailView: View {
             Spacer()
 
             if let platform = detail.platform {
-                Text("Plat \(platform)")
+                Text(platform.uppercased() == "BUS" ? platform : "Plat \(platform)")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(colorScheme == .dark ? .black : .white)
                     .padding(.horizontal, 8)

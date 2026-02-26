@@ -260,12 +260,13 @@ private func fetchEntry(boards: [BoardConfig], servicesPerStation: Int) async ->
         }()
         do {
             let result = try await fetchBoard(crs: board.crs, boardType: board.boardType, numRows: servicesPerStation, filterCrs: board.filterCrs, filterType: board.filterType)
-            let services = (result.trainServices?.service ?? []).prefix(servicesPerStation).map { service in
-                let dest = service.destination.location.map(\.locationName).joined(separator: " & ")
+            let allServices = (result.trainServices ?? []) + (result.busServices ?? [])
+            let services = allServices.prefix(servicesPerStation).map { service in
+                let dest = service.destination.map(\.locationName).joined(separator: " & ")
                 let status = service.estimated
-                let isCancelled = status.lowercased().contains("cancel")
-                let isDelayed = status.lowercased().contains("delayed") ||
-                    (isTimeFormat(status) && status > service.scheduled)
+                let isCancelled = service.isCancelled
+                let isDelayed = !isCancelled && (status.lowercased().contains("delayed") ||
+                    (isTimeFormat(status) && status > service.scheduled))
                 return DepartureEntry.WidgetService(
                     id: service.serviceID,
                     scheduled: service.scheduled,
@@ -306,7 +307,7 @@ private func loadStationCache() -> [Station] {
 }
 
 private func fetchBoard(crs: String, boardType: BoardType, numRows: Int, filterCrs: String? = nil, filterType: String? = nil) async throws -> DepartureBoard {
-    var components = URLComponents(string: "https://rail.breslan.co.uk/api/\(boardType.rawValue)/\(crs)")!
+    var components = URLComponents(string: "\(APIConfig.baseURL)/\(boardType.rawValue)/\(crs)")!
     var queryItems = [URLQueryItem(name: "numRows", value: String(numRows))]
     if let filterCrs { queryItems.append(URLQueryItem(name: "filterCrs", value: filterCrs)) }
     if let filterType { queryItems.append(URLQueryItem(name: "filterType", value: filterType)) }

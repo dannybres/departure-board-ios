@@ -8,21 +8,21 @@
 import Foundation
 
 struct StationInfo: Codable {
-    let Name: String
-    let CrsCode: String
-    let SixteenCharacterName: String?
-    let StationOperator: String?
-    let Latitude: String?
-    let Longitude: String?
-    let Address: StationAddress?
-    let Staffing: StationStaffing?
-    let InformationSystems: InformationSystems?
-    let Fares: StationFares?
-    let StationFacilities: StationFacilitiesInfo?
-    let ImpairedAccess: StationImpairedAccess?
-    let Interchange: StationInterchange?
-    let PassengerServices: StationPassengerServices?
-    let StationAlerts: StationAlerts?
+    let name: String
+    let crsCode: String
+    let sixteenCharacterName: String?
+    let stationOperator: String?
+    let latitude: Double?
+    let longitude: Double?
+    let address: StationAddress?
+    let staffing: StationStaffing?
+    let informationSystems: InformationSystems?
+    let fares: StationFares?
+    let stationFacilities: StationFacilitiesInfo?
+    let impairedAccess: StationImpairedAccess?
+    let interchange: StationInterchange?
+    let passengerServices: StationPassengerServices?
+    let stationAlerts: StationAlerts?
 }
 
 // MARK: - Information Systems
@@ -44,218 +44,152 @@ struct InformationSystems: Codable {
 // MARK: - Passenger Services
 
 struct StationPassengerServices: Codable {
-    let CustomerService: AnnotationContainer?
-    let LostProperty: ServiceContactInfo?
-    let LeftLuggage: ServiceContactInfo?
+    let customerService: AnnotationContainer?
+    let lostProperty: ServiceContactInfo?
+    let leftLuggage: ServiceContactInfo?
 }
 
 struct AnnotationContainer: Codable {
-    let Annotation: NoteContainer?
+    let annotation: NoteContainer?
 }
 
 struct NoteContainer: Codable {
-    let Note: String?
+    let note: String?
 }
 
 struct ServiceContactInfo: Codable {
-    let ContactDetails: ContactDetails?
-    let Open: ServiceOpen?
-    let Available: String?
+    let contactDetails: ContactDetails?
+    let open: ServiceOpen?
+    let available: Bool?
 }
 
 struct ContactDetails: Codable {
-    let PrimaryTelephoneNumber: TelephoneNumber?
-    let Url: String?
-    let Annotation: NoteContainer?
+    let primaryTelephoneNumber: TelephoneNumber?
+    let url: String?
+    let annotation: NoteContainer?
 }
 
 struct TelephoneNumber: Codable {
-    let TelNationalNumber: String?
+    let telNationalNumber: String?
 }
 
 struct ServiceOpen: Codable {
-    let Annotation: NoteContainer?
-    let DayAndTimeAvailability: DayAndTimeValue?
+    let annotation: NoteContainer?
+    let dayAndTimeAvailability: [DayAndTime]?
 }
 
 struct TravelcardInfo: Codable {
-    let TravelcardZone: String?
+    let travelcardZone: String?
 }
 
 // MARK: - Address
 
 struct StationAddress: Codable {
-    let PostalAddress: PostalAddress?
+    let postalAddress: PostalAddress?
 }
 
 struct PostalAddress: Codable {
-    let A_5LineAddress: FiveLineAddress?
+    let a_5LineAddress: FiveLineAddress?
 }
 
 struct FiveLineAddress: Codable {
-    let Line: LineValue?
-    let PostCode: String?
-
-    enum CodingKeys: String, CodingKey {
-        case Line, PostCode
-    }
-}
-
-// Line can be a single string or an array of strings
-enum LineValue: Codable {
-    case single(String)
-    case multiple([String])
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let array = try? container.decode([String].self) {
-            self = .multiple(array)
-        } else if let string = try? container.decode(String.self) {
-            self = .single(string)
-        } else {
-            self = .multiple([])
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .single(let s): try container.encode(s)
-        case .multiple(let a): try container.encode(a)
-        }
-    }
-
-    var lines: [String] {
-        switch self {
-        case .single(let s): return [s]
-        case .multiple(let a): return a
-        }
-    }
+    let line: [String]?
+    let postCode: String?
 }
 
 // MARK: - Staffing
 
 struct StationStaffing: Codable {
-    let StaffingLevel: String?
-    let ClosedCircuitTelevision: CCTVInfo?
+    let staffingLevel: String?
+    let closedCircuitTelevision: CCTVInfo?
 }
 
 struct CCTVInfo: Codable {
-    let Overall: String?
+    let overall: Bool?
 }
 
 // MARK: - Fares
 
 struct StationFares: Codable {
-    let TicketOffice: TicketOffice?
-    let TicketMachine: AvailableField?
-    let PrepurchaseCollection: String?
-    let SmartcardIssued: String?
-    let OysterPrePay: String?
-    let PenaltyFares: NoteField?
-    let Travelcard: TravelcardInfo?
-    let OysterTopup: String?
-    let OysterValidator: String?
-    let SmartcardTopup: String?
-    let SmartcardComments: NoteField?
+    let ticketOffice: TicketOffice?
+    let ticketMachine: AvailableField?
+    let prepurchaseCollection: Bool?
+    let smartcardIssued: Bool?
+    let oysterPrePay: Bool?
+    let penaltyFares: NoteField?
+    let travelcard: TravelcardInfo?
+    let oysterTopup: Bool?
+    let oysterValidator: Bool?
+    let smartcardTopup: Bool?
+    let smartcardComments: NoteField?
 }
 
 struct TicketOffice: Codable {
-    let Annotation: NoteContainer?
-    let Open: TicketOfficeOpen?
+    let annotation: NoteContainer?
+    let open: TicketOfficeOpen?
 }
 
 struct TicketOfficeOpen: Codable {
-    let Annotation: NoteContainer?
-    let DayAndTimeAvailability: DayAndTimeValue?
-}
-
-// DayAndTimeAvailability can be a single object or array
-enum DayAndTimeValue: Codable {
-    case single(DayAndTime)
-    case multiple([DayAndTime])
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let array = try? container.decode([DayAndTime].self) {
-            self = .multiple(array)
-        } else if let single = try? container.decode(DayAndTime.self) {
-            self = .single(single)
-        } else {
-            self = .multiple([])
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .single(let s): try container.encode(s)
-        case .multiple(let a): try container.encode(a)
-        }
-    }
-
-    var items: [DayAndTime] {
-        switch self {
-        case .single(let s): return [s]
-        case .multiple(let a): return a
-        }
-    }
+    let annotation: NoteContainer?
+    let dayAndTimeAvailability: [DayAndTime]?
 }
 
 struct DayAndTime: Codable {
-    let DayTypes: DayTypes?
-    let OpeningHours: OpeningHours?
+    let dayTypes: DayTypes?
+    let openingHours: OpeningHours?
 }
 
 struct DayTypes: Codable {
-    let MondayToFriday: String?
-    let MondayToSaturday: String?
-    let MondayToSunday: String?
-    let Monday: String?
-    let Tuesday: String?
-    let Wednesday: String?
-    let Thursday: String?
-    let Friday: String?
-    let Saturday: String?
-    let Sunday: String?
+    let mondayToFriday: String?
+    let mondayToSaturday: String?
+    let mondayToSunday: String?
+    let monday: String?
+    let tuesday: String?
+    let wednesday: String?
+    let thursday: String?
+    let friday: String?
+    let saturday: String?
+    let sunday: String?
 
     var description: String {
         var days: [String] = []
-        if MondayToFriday != nil { days.append("Mon–Fri") }
-        if MondayToSaturday != nil { days.append("Mon–Sat") }
-        if MondayToSunday != nil { days.append("Mon–Sun") }
-        if Monday != nil { days.append("Mon") }
-        if Tuesday != nil { days.append("Tue") }
-        if Wednesday != nil { days.append("Wed") }
-        if Thursday != nil { days.append("Thu") }
-        if Friday != nil { days.append("Fri") }
-        if Saturday != nil { days.append("Sat") }
-        if Sunday != nil { days.append("Sun") }
+        if mondayToFriday != nil { days.append("Mon–Fri") }
+        if mondayToSaturday != nil { days.append("Mon–Sat") }
+        if mondayToSunday != nil { days.append("Mon–Sun") }
+        if monday != nil { days.append("Mon") }
+        if tuesday != nil { days.append("Tue") }
+        if wednesday != nil { days.append("Wed") }
+        if thursday != nil { days.append("Thu") }
+        if friday != nil { days.append("Fri") }
+        if saturday != nil { days.append("Sat") }
+        if sunday != nil { days.append("Sun") }
         return days.joined(separator: ", ")
     }
 }
 
 struct OpeningHours: Codable {
-    let OpenPeriod: OpenPeriod?
-    let TwentyFourHours: String?
+    let openPeriod: [OpenPeriod]?
+    let twentyFourHours: String?
+    let unavailable: String?
 
     var formatted: String {
-        if TwentyFourHours != nil { return "24 hours" }
-        return OpenPeriod?.formatted ?? ""
+        if twentyFourHours != nil { return "24 hours" }
+        if unavailable != nil { return "Unavailable" }
+        guard let periods = openPeriod, !periods.isEmpty else { return "" }
+        return periods.map { $0.formatted }.joined(separator: ", ")
     }
 }
 
 struct OpenPeriod: Codable {
-    let StartTime: String?
-    let EndTime: String?
+    let startTime: String?
+    let endTime: String?
 
     var formatted: String {
-        guard let start = StartTime, let end = EndTime else { return "" }
+        guard let start = startTime, let end = endTime else { return "" }
         return "\(formatTime(start)) – \(formatTime(end))"
     }
 
     private func formatTime(_ time: String) -> String {
-        // "06:00:00.000" -> "06:00"
         let parts = time.split(separator: ":")
         if parts.count >= 2 {
             return "\(parts[0]):\(parts[1])"
@@ -267,207 +201,132 @@ struct OpenPeriod: Codable {
 // MARK: - Facilities
 
 struct StationFacilitiesInfo: Codable {
-    let Toilets: AvailableField?
-    let WiFi: AvailableField?
-    let WaitingRoom: AvailableField?
-    let Shops: AvailableField?
-    let AtmMachine: AvailableField?
-    let BabyChange: AvailableField?
-    let StationBuffet: AvailableField?
-    let Showers: AvailableField?
-    let PostBox: AvailableField?
-    let Trolleys: AvailableField?
-    let FirstClassLounge: FirstClassLounge?
-    let SeatedArea: AvailableField?
+    let toilets: AvailableField?
+    let wiFi: AvailableField?
+    let waitingRoom: AvailableField?
+    let shops: AvailableField?
+    let atmMachine: AvailableField?
+    let babyChange: AvailableField?
+    let stationBuffet: AvailableField?
+    let showers: AvailableField?
+    let postBox: AvailableField?
+    let trolleys: AvailableField?
+    let firstClassLounge: FirstClassLounge?
+    let seatedArea: AvailableField?
 }
 
 struct AvailableField: Codable {
-    let Available: String?
-    let Note: String?
-    let Annotation: NoteContainer?
+    let available: Bool?
+    let note: String?
+    let annotation: NoteContainer?
 
     var isAvailable: Bool {
-        Available?.lowercased() == "true"
+        available == true
     }
 
     var noteText: String? {
-        Note ?? Annotation?.Note
+        note ?? annotation?.note
     }
 }
 
 struct NoteField: Codable {
-    let Note: String?
+    let note: String?
 }
 
 struct FirstClassLounge: Codable {
-    let Annotation: NoteContainer?
-    let Open: TicketOfficeOpen?
+    let annotation: NoteContainer?
+    let open: TicketOfficeOpen?
 }
 
 // MARK: - Impaired Access
 
 struct StationImpairedAccess: Codable {
-    let Helpline: AccessHelpline?
-    let CustomerHelpPoints: AvailableField?
-    let StaffHelpAvailable: StaffHelpAvailable?
-    let StepFreeAccess: StepFreeAccess?
-    let TicketGate: String?
-    let TicketGateComments: NoteField?
-    let InductionLoop: String?
-    let AccessibleTicketMachines: AvailableField?
-    let AccessibleBookingOfficeCounter: AvailableField?
-    let WheelchairsAvailable: AvailableField?
-    let RampForTrainAccess: AvailableField?
-    let AccessibleTaxis: AnnotationContainer?
-    let AccessiblePublicTelephones: AnnotationContainer?
-    let NationalKeyToilets: AvailableField?
-    let ImpairedMobilitySetDown: AvailableField?
+    let helpline: AccessHelpline?
+    let customerHelpPoints: AvailableField?
+    let staffHelpAvailable: StaffHelpAvailable?
+    let stepFreeAccess: StepFreeAccess?
+    let ticketGate: Bool?
+    let ticketGateComments: NoteField?
+    let inductionLoop: Bool?
+    let accessibleTicketMachines: AvailableField?
+    let accessibleBookingOfficeCounter: AvailableField?
+    let wheelchairsAvailable: AvailableField?
+    let rampForTrainAccess: AvailableField?
+    let accessibleTaxis: AvailableField?
+    let accessiblePublicTelephones: AvailableField?
+    let nationalKeyToilets: AvailableField?
+    let impairedMobilitySetDown: AvailableField?
 }
 
 struct AccessHelpline: Codable {
-    let Annotation: NoteContainer?
-    let ContactDetails: ContactDetails?
-    let Open: ServiceOpen?
+    let annotation: NoteContainer?
+    let contactDetails: ContactDetails?
+    let open: ServiceOpen?
 }
 
 struct StaffHelpAvailable: Codable {
-    let Annotation: NoteContainer?
-    let Open: ServiceOpen?
+    let annotation: NoteContainer?
+    let open: ServiceOpen?
 }
 
 struct StepFreeAccess: Codable {
-    let Annotation: NoteContainer?
-    let Coverage: String?
+    let annotation: NoteContainer?
+    let coverage: String?
 }
 
 // MARK: - Interchange
 
 struct StationInterchange: Codable {
-    let CycleStorageAvailability: String?
-    let CycleStorageSpaces: String?
-    let CycleStorageSheltered: String?
-    let CycleStorageCctv: String?
-    let CycleStorageLocation: String?
-    let CycleStorageNote: NoteField?
-    let CycleStorageType: FlexibleStringValue?
-    let TaxiRank: AvailableField?
-    let BusServices: AvailableField?
-    let MetroServices: AvailableField?
-    let CarPark: FlexibleCarParkValue?
-    let RailReplacementServices: AnnotationContainer?
-    let Airport: AvailableField?
-    let CarHire: AvailableField?
-    let CycleHire: AvailableField?
+    let cycleStorageAvailability: Bool?
+    let cycleStorageSpaces: Int?
+    let cycleStorageSheltered: Bool?
+    let cycleStorageCctv: Bool?
+    let cycleStorageLocation: String?
+    let cycleStorageNote: NoteField?
+    let cycleStorageType: [String]?
+    let taxiRank: AvailableField?
+    let busServices: AvailableField?
+    let metroServices: AvailableField?
+    let carPark: CarParkInfo?
+    let railReplacementServices: RailReplacementServices?
+    let airport: AvailableField?
+    let carHire: AvailableField?
+    let cycleHire: AvailableField?
 }
 
-// CycleStorageType can be a single string or array of strings
-enum FlexibleStringValue: Codable {
-    case single(String)
-    case multiple([String])
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let array = try? container.decode([String].self) {
-            self = .multiple(array)
-        } else if let string = try? container.decode(String.self) {
-            self = .single(string)
-        } else {
-            self = .multiple([])
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .single(let s): try container.encode(s)
-        case .multiple(let a): try container.encode(a)
-        }
-    }
-
-    var text: String {
-        switch self {
-        case .single(let s): return s
-        case .multiple(let a): return a.joined(separator: ", ")
-        }
-    }
-}
-
-// CarPark can be a single object or array of objects
-enum FlexibleCarParkValue: Codable {
-    case single(CarParkInfo)
-    case multiple([CarParkInfo])
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let array = try? container.decode([CarParkInfo].self) {
-            self = .multiple(array)
-        } else if let single = try? container.decode(CarParkInfo.self) {
-            self = .single(single)
-        } else {
-            self = .multiple([])
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .single(let s): try container.encode(s)
-        case .multiple(let a): try container.encode(a)
-        }
-    }
-
-    var items: [CarParkInfo] {
-        switch self {
-        case .single(let s): return [s]
-        case .multiple(let a): return a
-        }
-    }
+struct RailReplacementServices: Codable {
+    let annotation: NoteContainer?
+    let railReplacementMap: String?
 }
 
 struct CarParkInfo: Codable {
-    let Name: String?
-    let Spaces: String?
-    let Operator: String?
-    let ContactDetails: ContactDetails?
-    let Open: ServiceOpen?
+    let name: String?
+    let spaces: Int?
+    let carParkOperator: String?
+    let contactDetails: ContactDetails?
+    let open: ServiceOpen?
+    let charges: CarParkCharges?
+
+    enum CodingKeys: String, CodingKey {
+        case name, spaces, contactDetails, open, charges
+        case carParkOperator = "operator"
+    }
+}
+
+struct CarParkCharges: Codable {
+    let free: Bool?
+    let daily: String?
+    let hourly: String?
 }
 
 // MARK: - Alerts
 
 struct StationAlerts: Codable {
-    let AlertText: AlertTextValue?
+    let alertText: String?
 }
 
-enum AlertTextValue: Codable {
-    case single(String)
-    case multiple([String])
-    case empty
+// MARK: - Nearest Stations
 
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let array = try? container.decode([String].self) {
-            self = array.isEmpty ? .empty : .multiple(array)
-        } else if let string = try? container.decode(String.self) {
-            self = string.isEmpty ? .empty : .single(string)
-        } else {
-            self = .empty
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .single(let s): try container.encode(s)
-        case .multiple(let a): try container.encode(a)
-        case .empty: try container.encode("")
-        }
-    }
-
-    var texts: [String] {
-        switch self {
-        case .single(let s): return [s]
-        case .multiple(let a): return a
-        case .empty: return []
-        }
-    }
+struct NearestStationsWithMoreFacilities: Codable {
+    let crsCode: [String]?
 }

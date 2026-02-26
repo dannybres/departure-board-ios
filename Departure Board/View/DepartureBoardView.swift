@@ -44,9 +44,25 @@ struct DepartureBoardView: View {
         _filterType = State(initialValue: initialFilterType ?? "to")
     }
 
+    private var hasTrains: Bool {
+        !(board?.trainServices ?? []).isEmpty
+    }
+
+    private var hasBuses: Bool {
+        !(board?.busServices ?? []).isEmpty
+    }
+
+    private var hasAnyServices: Bool {
+        hasTrains || hasBuses
+    }
+
+    private var showServiceTypeHeaders: Bool {
+        hasTrains && hasBuses
+    }
+
     var body: some View {
         List {
-            if let services = board?.trainServices?.service {
+            if hasAnyServices {
                 // Show earlier trains button
                 Section {
                     Button {
@@ -57,7 +73,7 @@ struct DepartureBoardView: View {
                     } label: {
                         HStack {
                             Spacer()
-                            Label("Show earlier trains", systemImage: "chevron.up")
+                            Label("Show earlier services", systemImage: "chevron.up")
                                 .font(.subheadline.weight(.medium))
                             Spacer()
                         }
@@ -67,18 +83,57 @@ struct DepartureBoardView: View {
                     .disabled(timeOffset ?? 0 <= -120)
                 }
 
-                ForEach(services) { service in
-                    Section {
-                        NavigationLink(value: service) {
-                            DepartureRow(service: service, boardType: selectedBoard)
+                // Train services
+                if let trains = board?.trainServices, !trains.isEmpty {
+                    if showServiceTypeHeaders {
+                        Section {
+                            Label("Trains", systemImage: "tram.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Theme.brand)
+                                .listRowBackground(Color.clear)
                         }
-                        .contextMenu {
-                            serviceContextMenu(service)
+                    }
+
+                    ForEach(trains) { service in
+                        Section {
+                            NavigationLink(value: service) {
+                                DepartureRow(service: service, boardType: selectedBoard)
+                            }
+                            .contextMenu {
+                                serviceContextMenu(service)
+                            }
+                            .listRowBackground(
+                                selectedServiceID == service.serviceID
+                                    ? Theme.brandSubtle : nil
+                            )
                         }
-                        .listRowBackground(
-                            selectedServiceID == service.serviceID
-                                ? Theme.brandSubtle : nil
-                        )
+                    }
+                }
+
+                // Bus services
+                if let buses = board?.busServices, !buses.isEmpty {
+                    if showServiceTypeHeaders {
+                        Section {
+                            Label("Buses", systemImage: "bus.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Theme.brand)
+                                .listRowBackground(Color.clear)
+                        }
+                    }
+
+                    ForEach(buses) { service in
+                        Section {
+                            NavigationLink(value: service) {
+                                DepartureRow(service: service, boardType: selectedBoard)
+                            }
+                            .contextMenu {
+                                serviceContextMenu(service)
+                            }
+                            .listRowBackground(
+                                selectedServiceID == service.serviceID
+                                    ? Theme.brandSubtle : nil
+                            )
+                        }
                     }
                 }
 
@@ -91,7 +146,7 @@ struct DepartureBoardView: View {
                     } label: {
                         HStack {
                             Spacer()
-                            Label("Show later trains", systemImage: "chevron.down")
+                            Label("Show later services", systemImage: "chevron.down")
                                 .font(.subheadline.weight(.medium))
                             Spacer()
                         }
@@ -120,7 +175,7 @@ struct DepartureBoardView: View {
             } else if !isLoading {
                 if let filterStation {
                     VStack(spacing: 12) {
-                        Text("No trains \(filterType == "to" ? "calling at" : "from") \(filterStation.name)")
+                        Text("No services \(filterType == "to" ? "calling at" : "from") \(filterStation.name)")
                             .foregroundStyle(.secondary)
                         Button("Clear Filter") {
                             self.filterStation = nil
@@ -291,7 +346,8 @@ struct DepartureBoardView: View {
         .task {
             await loadBoard(type: selectedBoard, showLoading: true)
             if let pendingServiceID, !didAutoNavigate,
-               let service = board?.trainServices?.service.first(where: { $0.serviceID == pendingServiceID }) {
+               let service = (board?.trainServices ?? []).first(where: { $0.serviceID == pendingServiceID })
+                    ?? (board?.busServices ?? []).first(where: { $0.serviceID == pendingServiceID }) {
                 didAutoNavigate = true
                 navigationPath.append(service)
             }
@@ -315,14 +371,14 @@ struct DepartureBoardView: View {
         }
 
         // Origin station actions
-        if let origin = service.origin.location.first {
+        if let origin = service.origin.first {
             Section(origin.locationName) {
                 stationMenuButtons(crs: origin.crs, name: origin.locationName)
             }
         }
 
         // Destination station actions
-        if let destination = service.destination.location.first {
+        if let destination = service.destination.first {
             Section(destination.locationName) {
                 stationMenuButtons(crs: destination.crs, name: destination.locationName)
 
@@ -435,7 +491,7 @@ struct DepartureBoardView: View {
         let offsetString = offsetDate.formatted(date: .omitted, time: .shortened)
 
         // If the first train is earlier than our calculated offset, use the train's time
-        if let firstScheduled = board?.trainServices?.service.first?.scheduled,
+        if let firstScheduled = board?.trainServices?.first?.scheduled,
            firstScheduled < offsetString {
             return firstScheduled
         }
@@ -469,13 +525,13 @@ struct DepartureRow: View {
 
     private var locations: [Location] {
         if boardType == .arrivals {
-            return service.origin.location
+            return service.origin
         }
-        return service.destination.location
+        return service.destination
     }
 
     private var isCancelled: Bool {
-        service.estimated.lowercased().contains("cancel")
+        service.isCancelled
     }
 
     private var isDelayed: Bool {
@@ -522,7 +578,7 @@ struct DepartureRow: View {
             Spacer()
 
             if let platform = service.platform {
-                Text("Plat \(platform)")
+                Text(platform.uppercased() == "BUS" ? platform : "Plat \(platform)")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(colorScheme == .dark ? .black : .white)
                     .padding(.horizontal, 8)

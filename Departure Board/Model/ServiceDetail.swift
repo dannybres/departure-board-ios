@@ -21,23 +21,13 @@ struct ServiceDetail: Codable {
     let ata: String?
     let atd: String?
     let platform: String?
-    let length: String?
+    let length: Int?
+    let isCancelled: Bool
+    let cancelReason: String?
     let delayReason: String?
     let overdueMessage: String?
-    let previousCallingPoints: CallingPointListContainer?
-    let subsequentCallingPoints: CallingPointListContainer?
-    
-//    var scheduled: String { sta ?? std ?? "missing" }
-//    var estimated: String { eta ?? etd ?? "missing" }
-//    var actual: String { ata ?? atd ?? "missing" }
-}
-
-struct CallingPointListContainer: Codable {
-    let callingPointList: [CallingPointList]
-}
-
-struct CallingPointList: Codable {
-    let callingPoint: [CallingPoint]
+    let previousCallingPoints: [[CallingPoint]]?
+    let subsequentCallingPoints: [[CallingPoint]]?
 }
 
 struct CallingPoint: Codable, Identifiable {
@@ -46,15 +36,16 @@ struct CallingPoint: Codable, Identifiable {
     let st: String
     let at: String?
     let et: String?
-    let isCancelled: String?
+    let isCancelled: Bool?
     let cancelReason: String?
     let delayReason: String?
-    let length: String?
+    let detachFront: Bool?
+    let length: Int?
 
     var id: String { "\(crs)-\(st)" }
 
     var cancelled: Bool {
-        isCancelled?.lowercased() == "true"
+        isCancelled == true
     }
 
     var status: String {
@@ -69,7 +60,6 @@ struct CallingPoint: Codable, Identifiable {
         if value.lowercased() == "on time" || value.isEmpty || value == "No report" { return false }
         if value.lowercased().contains("cancel") { return true }
         if value.lowercased().contains("delayed") { return true }
-        // If it's a time, compare to scheduled
         if value.range(of: #"^\d{2}:\d{2}$"#, options: .regularExpression) != nil {
             return value > st
         }
