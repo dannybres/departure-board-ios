@@ -695,46 +695,59 @@ struct StationInfoView: View {
         }
     }
 
+    private func serviceHasContent(_ service: ServiceContactInfo) -> Bool {
+        if service.contactDetails?.primaryTelephoneNumber?.telNationalNumber != nil { return true }
+        if service.contactDetails?.url != nil { return true }
+        if let note = service.open?.annotation?.note, !stripHTML(note).isEmpty { return true }
+        if let avail = service.open?.dayAndTimeAvailability, !avail.isEmpty { return true }
+        return false
+    }
+
     @ViewBuilder
     private func serviceContactRows(service: ServiceContactInfo) -> some View {
-        if let phone = service.contactDetails?.primaryTelephoneNumber?.telNationalNumber,
-           let url = makePhoneURL(phone) {
-            Link(destination: url) {
-                LabeledContent("Phone", value: phone)
+        if serviceHasContent(service) {
+            if let phone = service.contactDetails?.primaryTelephoneNumber?.telNationalNumber,
+               let url = makePhoneURL(phone) {
+                Link(destination: url) {
+                    LabeledContent("Phone", value: phone)
+                }
+                .copyable(phone)
             }
-            .copyable(phone)
-        }
 
-        if let website = service.contactDetails?.url,
-           let url = URL(string: website) {
-            Link(destination: url) {
-                LabeledContent("Website") {
-                    Text(website)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+            if let website = service.contactDetails?.url,
+               let url = URL(string: website) {
+                Link(destination: url) {
+                    LabeledContent("Website") {
+                        Text(website)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+                .copyable(website)
+            }
+
+            if let hours = service.open?.annotation?.note {
+                let cleaned = stripHTML(hours)
+                if !cleaned.isEmpty {
+                    Text(cleaned)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .copyable(cleaned)
                 }
             }
-            .copyable(website)
-        }
 
-        if let hours = service.open?.annotation?.note {
-            let cleaned = stripHTML(hours)
-            if !cleaned.isEmpty {
-                Text(cleaned)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .copyable(cleaned)
-            }
-        }
-
-        if let availability = service.open?.dayAndTimeAvailability {
-            ForEach(Array(availability.enumerated()), id: \.offset) { _, entry in
-                if let days = entry.dayTypes?.description,
-                   let time = entry.openingHours?.formatted, !time.isEmpty {
-                    LabeledContent(days, value: time)
-                        .copyable(time)
+            if let availability = service.open?.dayAndTimeAvailability {
+                ForEach(Array(availability.enumerated()), id: \.offset) { _, entry in
+                    if let days = entry.dayTypes?.description,
+                       let time = entry.openingHours?.formatted, !time.isEmpty {
+                        LabeledContent(days, value: time)
+                            .copyable(time)
+                    }
                 }
             }
+        } else {
+            Text("Not available")
+                .foregroundStyle(.secondary)
         }
     }
 

@@ -393,12 +393,48 @@ struct ServiceDetailView: View {
         let currentState: TimelineState = detail.atd != nil ? .past : .current
         shared.append(RoutePoint(crs: detail.crs, name: detail.locationName, state: currentState, scheduled: detail.sta ?? detail.std, actual: detail.ata ?? detail.atd, expected: detail.eta ?? detail.etd, platform: detail.platform, cancelled: false))
 
-        let branches = detail.subsequentCallingPoints ?? []
-        if branches.isEmpty {
+        let legs = detail.subsequentCallingPoints ?? []
+        if legs.isEmpty {
             return [shared]
         }
 
-        return branches.map { list in
+        // For split services, find the shared portion and build branches after the split
+        if legs.count > 1, let leg0 = legs.first, let leg1 = legs.dropFirst().first,
+           let splitCrs = leg1.first?.crs,
+           let splitIndex = leg0.firstIndex(where: { $0.crs == splitCrs }) {
+            // Add shared stops up to and including split point
+            for point in leg0[...splitIndex] {
+                let isPast = point.at != nil
+                let state: TimelineState = point.cancelled ? .cancelled : (isPast ? .past : .future)
+                shared.append(RoutePoint(crs: point.crs, name: point.locationName, state: state, scheduled: point.st, actual: point.at, expected: point.et, platform: nil, cancelled: point.cancelled))
+            }
+
+            // Build each branch from after the split point
+            var result: [[RoutePoint]] = []
+            // Leg 0: stops after the split
+            var branch0 = shared
+            for point in leg0[(splitIndex + 1)...] {
+                let isPast = point.at != nil
+                let state: TimelineState = point.cancelled ? .cancelled : (isPast ? .past : .future)
+                branch0.append(RoutePoint(crs: point.crs, name: point.locationName, state: state, scheduled: point.st, actual: point.at, expected: point.et, platform: nil, cancelled: point.cancelled))
+            }
+            result.append(branch0)
+
+            // Remaining legs: skip the split point (first stop)
+            for leg in legs.dropFirst() {
+                var branch = shared
+                for point in leg.dropFirst() {
+                    let isPast = point.at != nil
+                    let state: TimelineState = point.cancelled ? .cancelled : (isPast ? .past : .future)
+                    branch.append(RoutePoint(crs: point.crs, name: point.locationName, state: state, scheduled: point.st, actual: point.at, expected: point.et, platform: nil, cancelled: point.cancelled))
+                }
+                result.append(branch)
+            }
+            return result
+        }
+
+        // Single leg or no split point found
+        return legs.map { list in
             var branch = shared
             for point in list {
                 let isPast = point.at != nil
@@ -428,13 +464,45 @@ struct ServiceDetailView: View {
         subsequentBranches.count > 1
     }
 
+    /// For a split service, find the split point CRS — the first stop of leg 1 that also appears in leg 0.
+    /// Returns (shared stops from leg 0 up to & including split, branch-specific stops for each leg after split).
+    private func splitSubsequentBranches() -> (shared: [CallingPoint], branches: [[CallingPoint]]) {
+        let legs = subsequentBranches
+        guard legs.count > 1, let leg0 = legs.first, let leg1 = legs.dropFirst().first else {
+            return ([], legs)
+        }
+
+        let splitCrs = leg1.first?.crs
+        if let splitCrs, let splitIndex = leg0.firstIndex(where: { $0.crs == splitCrs }) {
+            let shared = Array(leg0[...splitIndex])
+            let leg0Branch = Array(leg0[(splitIndex + 1)...])
+            let leg1Branch = Array(leg1.dropFirst()) // skip the split point (already in shared)
+            var branches = [leg0Branch, leg1Branch]
+            // Include any additional legs beyond the first two
+            for leg in legs.dropFirst(2) {
+                if leg.first?.crs == splitCrs {
+                    branches.append(Array(leg.dropFirst()))
+                } else {
+                    branches.append(leg)
+                }
+            }
+            return (shared, branches)
+        }
+
+        // No shared stop found — fall back to showing all legs separately
+        return ([], legs)
+    }
+
     @ViewBuilder
     private func callingPointsList(_ detail: ServiceDetail) -> some View {
         // Previous + current station
         let preRows = buildPreCurrentRows(detail)
+        let split = isSplitService ? splitSubsequentBranches() : (shared: [CallingPoint](), branches: [[CallingPoint]]())
+
         Section {
             ForEach(Array(preRows.enumerated()), id: \.offset) { index, row in
-                let isLast = isSplitService ? false : (index == preRows.count - 1 && subsequentBranches.isEmpty)
+                let hasSubsequent = isSplitService ? !split.shared.isEmpty : !subsequentBranches.isEmpty
+                let isLast = !hasSubsequent && index == preRows.count - 1
                 let position: TimelinePosition = index == 0 ? .first : (isLast ? .last : .middle)
 
                 switch row {
@@ -478,6 +546,22 @@ struct ServiceDetailView: View {
                     }
                 }
             }
+
+            // Split service — shared portion up to split point
+            if isSplitService {
+                ForEach(Array(split.shared.enumerated()), id: \.offset) { index, point in
+                    let isLast = index == split.shared.count - 1 && split.branches.allSatisfy(\.isEmpty)
+                    let position: TimelinePosition = isLast ? .last : .middle
+                    let isPast = point.at != nil
+                    let state: TimelineState = point.cancelled ? .cancelled : (isPast ? .past : .future)
+                    timelineRow(position: position, state: state) {
+                        callingPointContent(point, isPast: isPast)
+                    }
+                    .contextMenu {
+                        callingPointContextMenu(crs: point.crs, name: point.locationName)
+                    }
+                }
+            }
         } header: {
             Label("Calling Points", systemImage: "arrow.down")
                 .font(.caption.weight(.semibold))
@@ -485,27 +569,29 @@ struct ServiceDetailView: View {
                 .textCase(nil)
         }
 
-        // Split service — each branch in its own section
+        // Split service — each branch after the split point
         if isSplitService {
-            ForEach(Array(subsequentBranches.enumerated()), id: \.offset) { branchIndex, branch in
-                let destination = branch.last?.locationName ?? "Unknown"
-                Section {
-                    ForEach(Array(branch.enumerated()), id: \.offset) { index, point in
-                        let position: TimelinePosition = index == 0 ? .first : (index == branch.count - 1 ? .last : .middle)
-                        let isPast = point.at != nil
-                        let state: TimelineState = point.cancelled ? .cancelled : (isPast ? .past : .future)
-                        timelineRow(position: position, state: state) {
-                            callingPointContent(point, isPast: isPast)
+            ForEach(Array(split.branches.enumerated()), id: \.offset) { branchIndex, branch in
+                if !branch.isEmpty {
+                    let destination = branch.last?.locationName ?? "Unknown"
+                    Section {
+                        ForEach(Array(branch.enumerated()), id: \.offset) { index, point in
+                            let position: TimelinePosition = index == 0 ? .first : (index == branch.count - 1 ? .last : .middle)
+                            let isPast = point.at != nil
+                            let state: TimelineState = point.cancelled ? .cancelled : (isPast ? .past : .future)
+                            timelineRow(position: position, state: state) {
+                                callingPointContent(point, isPast: isPast)
+                            }
+                            .contextMenu {
+                                callingPointContextMenu(crs: point.crs, name: point.locationName)
+                            }
                         }
-                        .contextMenu {
-                            callingPointContextMenu(crs: point.crs, name: point.locationName)
-                        }
+                    } header: {
+                        Label("to \(destination)", systemImage: "arrow.triangle.branch")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Theme.brand)
+                            .textCase(nil)
                     }
-                } header: {
-                    Label("to \(destination)", systemImage: "arrow.triangle.branch")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Theme.brand)
-                        .textCase(nil)
                 }
             }
         }

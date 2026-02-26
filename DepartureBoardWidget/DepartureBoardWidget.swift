@@ -153,6 +153,7 @@ struct DepartureEntry: TimelineEntry {
         let status: String
         let isCancelled: Bool
         let isDelayed: Bool
+        let isBus: Bool
     }
 }
 
@@ -274,7 +275,8 @@ private func fetchEntry(boards: [BoardConfig], servicesPerStation: Int) async ->
                     platform: service.platform,
                     status: status,
                     isCancelled: isCancelled,
-                    isDelayed: isDelayed
+                    isDelayed: isDelayed,
+                    isBus: service.serviceType == "bus"
                 )
             }
             stationDepartures.append(.init(name: name, crs: board.crs, filterLabel: filterLabel, services: Array(services)))
@@ -335,7 +337,8 @@ extension DepartureEntry {
                 platform: "\(i + 1)",
                 status: i == 0 ? "On time" : String(format: "%02d:%02d", 8 + i / 4, ((i * 15) + 3) % 60),
                 isCancelled: false,
-                isDelayed: i > 0
+                isDelayed: i > 0,
+                isBus: false
             )
         }
         let stations = (0..<stationCount).map { i in
@@ -505,17 +508,23 @@ struct WidgetDepartureRow: View {
                 }
             }
 
+            if service.isBus {
+                Image(systemName: "bus.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
             if let platform = service.platform {
                 Text(platform)
                     .font(.system(.caption2, design: .monospaced).bold())
                     .foregroundStyle(colorScheme == .dark ? .black : .white)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
                     .background(
                         colorScheme == .dark ? Theme.platformBadgeDark : Theme.platformBadge,
                         in: RoundedRectangle(cornerRadius: 3)
                     )
-                    .frame(width: 28, alignment: .trailing)
+                    .frame(minWidth: 32, alignment: .trailing)
             }
         }
     }
