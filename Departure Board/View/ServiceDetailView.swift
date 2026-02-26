@@ -203,36 +203,37 @@ struct ServiceDetailView: View {
                 routeMapSection(detail)
 
                 Section {
+                    LabeledContent("Station", value: detail.locationName)
                     LabeledContent("Operator", value: detail.operator)
 
-                    if let platform = detail.platform {
-                        LabeledContent("Platform", value: platform)
+                    if let platform = service.platform {
+                        LabeledContent("Platform", value: platform.uppercased() == "BUS" ? platform : "Plat \(platform)")
                     }
 
                     if let length = detail.length {
                         LabeledContent("Coaches", value: "\(length)")
                     }
 
-                    if let sta = detail.sta {
+                    if let sta = service.sta {
                         LabeledContent("Scheduled Arrival", value: sta)
-                        if let ata = detail.ata, ata.lowercased() != "on time", ata != sta {
-                            LabeledContent("Actual Arrival", value: ata)
-                                .foregroundStyle(timeColor(scheduled: sta, actual: ata))
-                        } else if let eta = detail.eta, eta.lowercased() != "on time", eta != sta {
+                        if let eta = service.eta, eta.lowercased() != "on time", eta != sta {
                             LabeledContent("Expected Arrival", value: eta)
                                 .foregroundStyle(timeColor(scheduled: sta, actual: eta))
                         }
                     }
 
-                    if let std = detail.std {
+                    if let std = service.std {
                         LabeledContent("Scheduled Departure", value: std)
-                        if let atd = detail.atd, atd.lowercased() != "on time", atd != std {
-                            LabeledContent("Actual Departure", value: atd)
-                                .foregroundStyle(timeColor(scheduled: std, actual: atd))
-                        } else if let etd = detail.etd, etd.lowercased() != "on time", etd != std {
+                        if let etd = service.etd, etd.lowercased() != "on time", etd != std {
                             LabeledContent("Expected Departure", value: etd)
                                 .foregroundStyle(timeColor(scheduled: std, actual: etd))
                         }
+                    }
+
+                    if let reason = detail.cancelReason {
+                        Text(reason)
+                            .font(.subheadline)
+                            .foregroundStyle(.red)
                     }
 
                     if let reason = detail.delayReason {
@@ -247,6 +248,44 @@ struct ServiceDetailView: View {
                             .foregroundStyle(.red)
                     }
                 }
+
+                // Coach formation
+                if !detail.coaches.isEmpty {
+                    Section {
+                        ForEach(detail.coaches) { coach in
+                            HStack {
+                                Text(coach.number)
+                                    .font(.subheadline.weight(.semibold).monospaced())
+                                    .frame(width: 30, alignment: .leading)
+
+                                Text(coach.coachClass)
+                                    .font(.subheadline)
+
+                                Spacer()
+
+                                if let toilet = coach.toiletDescription {
+                                    Label(toilet, systemImage: "toilet")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                if let loading = coach.loadingDescription {
+                                    Text(loading)
+                                        .font(.caption.weight(.medium).monospaced())
+                                        .foregroundStyle(loadingColor(coach.loading ?? 0))
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(loadingColor(coach.loading ?? 0).opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
+                                }
+                            }
+                        }
+                    } header: {
+                        Label("Formation", systemImage: "tram")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Theme.brand)
+                            .textCase(nil)
+                    }
+                }
             }
             .navigationTitle(navigationTitleText)
             .navigationBarTitleDisplayMode(.inline)
@@ -256,6 +295,12 @@ struct ServiceDetailView: View {
                 }
             }
         }
+    }
+
+    private func loadingColor(_ percent: Int) -> Color {
+        if percent <= 33 { return .green }
+        if percent <= 66 { return .orange }
+        return .red
     }
 
     // MARK: - Route Map
