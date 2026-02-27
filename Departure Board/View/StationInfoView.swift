@@ -17,6 +17,7 @@ struct StationInfoView: View {
     @State private var info: StationInfo?
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var pendingCall: (number: String, url: URL)?
     @AppStorage("mapsProvider") private var mapsProvider: String = "apple"
 
     private var cachedStation: Station? {
@@ -136,6 +137,30 @@ struct StationInfoView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { onDismiss() }
                 }
+            }
+        }
+        .environment(\.openURL, OpenURLAction { url in
+            if url.scheme == "tel" {
+                let raw = url.absoluteString.replacingOccurrences(of: "tel:", with: "")
+                let display = raw.replacingOccurrences(of: "%2B", with: "+")
+                pendingCall = (number: display, url: url)
+                return .handled
+            }
+            return .systemAction
+        })
+        .confirmationDialog(
+            pendingCall.map { "Call \($0.number)" } ?? "",
+            isPresented: Binding(get: { pendingCall != nil }, set: { if !$0 { pendingCall = nil } }),
+            titleVisibility: .visible
+        ) {
+            if let call = pendingCall {
+                Button("Call \(call.number)") {
+                    UIApplication.shared.open(call.url)
+                }
+                Button("Copy Number") {
+                    UIPasteboard.general.string = call.number
+                }
+                Button("Cancel", role: .cancel) { }
             }
         }
         .task {
@@ -535,7 +560,9 @@ struct StationInfoView: View {
                 }
 
                 if let carPark = info.interchange?.carPark {
-                    let hasExtra = carPark.contactDetails?.url != nil || carPark.contactDetails?.primaryTelephoneNumber?.telNationalNumber != nil || carPark.open?.dayAndTimeAvailability != nil
+                    let charges = carPark.charges
+                    let hasCharges = charges?.effectiveHourly != nil || charges?.daily != nil || charges?.offPeak != nil || charges?.weekly != nil || charges?.monthly != nil || charges?.annual != nil || charges?.free == true
+                    let hasExtra = hasCharges || carPark.contactDetails?.url != nil || carPark.contactDetails?.primaryTelephoneNumber?.telNationalNumber != nil || carPark.open?.dayAndTimeAvailability != nil
                     if hasExtra {
                         DisclosureGroup {
                             if let op = carPark.carParkOperator {
@@ -573,16 +600,65 @@ struct StationInfoView: View {
                                     }
                                 }
                             }
+                            if let c = charges {
+                                if c.free == true {
+                                    LabeledContent("Parking", value: "Free")
+                                        .font(.caption)
+                                }
+                                if let v = c.effectiveHourly {
+                                    LabeledContent("Per hour", value: v)
+                                        .font(.caption)
+                                        .copyable(v)
+                                }
+                                if let v = c.offPeak {
+                                    LabeledContent("Off-peak", value: v)
+                                        .font(.caption)
+                                        .copyable(v)
+                                }
+                                if let v = c.daily {
+                                    LabeledContent("Daily", value: v)
+                                        .font(.caption)
+                                        .copyable(v)
+                                }
+                                if let v = c.weekly {
+                                    LabeledContent("Weekly", value: v)
+                                        .font(.caption)
+                                        .copyable(v)
+                                }
+                                if let v = c.monthly {
+                                    LabeledContent("Monthly", value: v)
+                                        .font(.caption)
+                                        .copyable(v)
+                                }
+                                if let v = c.threeMonthly {
+                                    LabeledContent("3 months", value: v)
+                                        .font(.caption)
+                                        .copyable(v)
+                                }
+                                if let v = c.annual {
+                                    LabeledContent("Annual", value: v)
+                                        .font(.caption)
+                                        .copyable(v)
+                                }
+                                if let note = c.note, !note.isEmpty {
+                                    richNoteCell(note)
+                                }
+                            }
                         } label: {
                             HStack {
                                 Label("Car Park", systemImage: "car")
                                 Spacer()
                                 VStack(alignment: .trailing) {
                                     if let name = carPark.name {
-                                        Text(name)
+                                        Text(name.trimmingCharacters(in: .whitespaces))
                                     }
                                     if let spaces = carPark.spaces {
                                         Text("\(spaces) spaces")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if let daily = charges?.daily {
+                                        Text(daily + " /day")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
@@ -595,7 +671,7 @@ struct StationInfoView: View {
                             Spacer()
                             VStack(alignment: .trailing) {
                                 if let name = carPark.name {
-                                    Text(name)
+                                    Text(name.trimmingCharacters(in: .whitespaces))
                                 }
                                 if let spaces = carPark.spaces {
                                     Text("\(spaces) spaces")
@@ -670,11 +746,9 @@ struct StationInfoView: View {
     @ViewBuilder
     private func facilityRow(_ name: String, icon: String, available: AvailableField?, hasDisclosureInSection: Bool = true) -> some View {
         if let field = available {
-            if let note = field.noteText.map({ stripHTML($0) }), !note.isEmpty {
+            if let rawNote = field.noteText, !rawNote.isEmpty {
                 DisclosureGroup {
-                    Text(note)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    richNoteCell(rawNote)
                 } label: {
                     LabeledContent {
                         Image(systemName: field.isAvailable ? "checkmark.circle.fill" : "xmark.circle")
@@ -779,12 +853,14 @@ struct StationInfoView: View {
 
     private func processToMarkdown(_ input: String) -> String {
         var text = input
-        // Fallback: convert HTML if any tags or encoded entities are present
-        if text.range(of: "<[a-zA-Z]", options: .regularExpression) != nil || text.contains("&lt;") {
-            text = text.replacingOccurrences(of: "&lt;", with: "<")
-            text = text.replacingOccurrences(of: "&gt;", with: ">")
-            text = text.replacingOccurrences(of: "&amp;", with: "&")
-            text = text.replacingOccurrences(of: "&quot;", with: "\"")
+        // Always decode basic HTML entities
+        text = text.replacingOccurrences(of: "&amp;", with: "&")
+        text = text.replacingOccurrences(of: "&lt;", with: "<")
+        text = text.replacingOccurrences(of: "&gt;", with: ">")
+        text = text.replacingOccurrences(of: "&quot;", with: "\"")
+        text = text.replacingOccurrences(of: "&#39;", with: "'")
+        // Convert HTML tags if present
+        if text.range(of: "<[a-zA-Z]", options: .regularExpression) != nil {
             text = text.replacingOccurrences(of: "<strong[^>]*>", with: "**", options: .regularExpression)
             text = text.replacingOccurrences(of: "</strong>", with: "**", options: .caseInsensitive)
             text = text.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
@@ -796,6 +872,8 @@ struct StationInfoView: View {
             text = text.replacingOccurrences(of: #"\s+\*\*"#, with: "**", options: .regularExpression)
             text = text.replacingOccurrences(of: #"\*\*\*([^\*])"#, with: "**$1", options: .regularExpression)
         }
+        // Strip ** immediately wrapping numeric content e.g. **0800 123 4567**
+        text = text.replacingOccurrences(of: #"\*\*([\d][\d\s\-\+]*)\*\*"#, with: "$1", options: .regularExpression)
         text = text.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -806,7 +884,124 @@ struct StationInfoView: View {
     }
 
     private func richText(_ input: String) -> Text {
-        Text(LocalizedStringKey(processToMarkdown(input)))
+        let processed = linkifyPhoneNumbers(processToMarkdown(input))
+        if var attributed = try? AttributedString(markdown: processed,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+            for run in attributed.runs where run.link != nil {
+                attributed[run.range].foregroundColor = UIColor.link
+            }
+            return Text(attributed)
+        }
+        return Text(processed)
+    }
+
+    private func linkifyPhoneNumbers(_ text: String) -> String {
+        guard let detector = try? NSDataDetector(
+            types: NSTextCheckingResult.CheckingType.phoneNumber.rawValue)
+        else { return text }
+
+        // Ranges already inside markdown links — skip these
+        var existingLinkRanges: [Range<String.Index>] = []
+        let linkPattern = #"\[[^\]]*\]\([^\)]*\)"#
+        var sr = text.startIndex..<text.endIndex
+        while let r = text.range(of: linkPattern, options: .regularExpression, range: sr) {
+            existingLinkRanges.append(r); sr = r.upperBound..<text.endIndex
+        }
+
+        struct PhoneMatch {
+            let range: Range<String.Index>
+            let display: String
+            let tel: String
+        }
+        var phoneMatches: [PhoneMatch] = []
+        var coveredRanges: [Range<String.Index>] = []
+
+        // Pre-pass: 18001 textphone relay numbers (e.g. "18001 0330 060 0500")
+        sr = text.startIndex..<text.endIndex
+        while let r = text.range(of: #"\b18001[\s\-]?\d[\d\s\-]{9,15}"#,
+                                  options: .regularExpression, range: sr) {
+            if !existingLinkRanges.contains(where: { $0.overlaps(r) }) {
+                let display = String(text[r]).trimmingCharacters(in: .whitespaces)
+                let digits = display.replacingOccurrences(of: "[^\\d]", with: "", options: .regularExpression)
+                phoneMatches.append(PhoneMatch(range: r, display: display, tel: digits))
+                coveredRanges.append(r)
+            }
+            sr = r.upperBound..<text.endIndex
+        }
+
+        // Standard numbers via NSDataDetector (skip anything already covered by 18001 pre-pass)
+        for match in detector.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            guard let r = Range(match.range, in: text) else { continue }
+            if existingLinkRanges.contains(where: { $0.overlaps(r) }) { continue }
+            if coveredRanges.contains(where: { $0.overlaps(r) }) { continue }
+            let display = String(text[r])
+            let digits = display.replacingOccurrences(of: "[^\\d+]", with: "", options: .regularExpression)
+            let tel = digits.hasPrefix("+") ? digits : digits.hasPrefix("0") ? "+44" + digits.dropFirst() : digits
+            guard !tel.isEmpty else { continue }
+            phoneMatches.append(PhoneMatch(range: r, display: display, tel: tel))
+        }
+
+        // Replace in reverse order so earlier indices stay valid
+        var result = text
+        for m in phoneMatches.sorted(by: { $0.range.lowerBound > $1.range.lowerBound }) {
+            let lo = result.index(result.startIndex, offsetBy: text.distance(from: text.startIndex, to: m.range.lowerBound))
+            let hi = result.index(result.startIndex, offsetBy: text.distance(from: text.startIndex, to: m.range.upperBound))
+            result.replaceSubrange(lo..<hi, with: "[\(m.display)](tel:\(m.tel))")
+        }
+        return result
+    }
+
+    @ViewBuilder
+    private func richNoteCell(_ note: String) -> some View {
+        let urls = extractAllURLs(from: note)
+        let singleURL = urls.count == 1 ? urls.first : nil
+        VStack(alignment: .leading, spacing: 4) {
+            richText(note)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if singleURL != nil {
+                Label("Open link", systemImage: "arrow.up.right.square")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Theme.brand)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if let url = singleURL { UIApplication.shared.open(url) }
+        }
+    }
+
+    private func extractAllURLs(from text: String) -> [URL] {
+        var urls: [URL] = []
+        var seen = Set<String>()
+        // Markdown links [label](url)
+        let mdPattern = #"\[([^\]]+)\]\((https?://[^\)]+)\)"#
+        var searchRange = text.startIndex..<text.endIndex
+        while let range = text.range(of: mdPattern, options: .regularExpression, range: searchRange) {
+            if let urlRange = text[range].range(of: #"https?://[^\)]+"#, options: .regularExpression) {
+                let urlStr = String(text[range][urlRange])
+                if !seen.contains(urlStr), let url = URL(string: urlStr) {
+                    urls.append(url)
+                    seen.insert(urlStr)
+                }
+            }
+            searchRange = range.upperBound..<text.endIndex
+        }
+        // Bare URLs not already captured
+        if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
+            let matches = detector.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            for match in matches {
+                if let url = match.url, !seen.contains(url.absoluteString) {
+                    urls.append(url)
+                    seen.insert(url.absoluteString)
+                }
+            }
+        }
+        return urls
+    }
+
+    private func extractFirstURL(from text: String) -> URL? {
+        extractAllURLs(from: text).first
     }
 
     private func extractPhoneNumber(_ html: String?) -> String? {

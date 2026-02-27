@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import Combine
 
 struct DepartureBoardView: View {
 
@@ -16,6 +15,8 @@ struct DepartureBoardView: View {
     var initialFilterStation: Station?
     var initialFilterType: String?
     @Binding var navigationPath: NavigationPath
+    var selectedService: Binding<Service?>?
+    var onNavigateToStation: ((StationDestination) -> Void)?
 
     // MARK: - State
     @State private var board: DepartureBoard?
@@ -31,20 +32,26 @@ struct DepartureBoardView: View {
     @State private var filterType: String = "to"
     @State private var showFilterSheet = false
     @State private var lastBoardUpdate: Date? = nil
-    @State private var tickDate = Date()
-    @AppStorage(SharedDefaults.Keys.favouriteItems, store: SharedDefaults.shared) private var favouriteItemsData: Data = Data()
+@AppStorage(SharedDefaults.Keys.favouriteItems, store: SharedDefaults.shared) private var favouriteItemsData: Data = Data()
     @AppStorage(SharedDefaults.Keys.savedFilters, store: SharedDefaults.shared) private var savedFiltersData: Data = Data()
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    init(station: Station, initialBoardType: BoardType = .departures, pendingServiceID: String? = nil, initialFilterStation: Station? = nil, initialFilterType: String? = nil, navigationPath: Binding<NavigationPath>) {
+    init(station: Station, initialBoardType: BoardType = .departures, pendingServiceID: String? = nil, initialFilterStation: Station? = nil, initialFilterType: String? = nil, selectedService: Binding<Service?>? = nil, onNavigateToStation: ((StationDestination) -> Void)? = nil, navigationPath: Binding<NavigationPath>) {
         self.station = station
         self.initialBoardType = initialBoardType
         self.pendingServiceID = pendingServiceID
         self.initialFilterStation = initialFilterStation
         self.initialFilterType = initialFilterType
+        self.selectedService = selectedService
+        self.onNavigateToStation = onNavigateToStation
         self._navigationPath = navigationPath
         _selectedBoard = State(initialValue: initialBoardType)
         _filterStation = State(initialValue: initialFilterStation)
         _filterType = State(initialValue: initialFilterType ?? "to")
+    }
+
+    private var highlightedServiceID: String? {
+        selectedService?.wrappedValue?.serviceId ?? selectedServiceID
     }
 
     private var hasTrains: Bool {
@@ -64,133 +71,14 @@ struct DepartureBoardView: View {
     }
 
     var body: some View {
-        List {
-            if hasAnyServices {
-                // Show earlier trains button
-                Section {
-                    Button {
-                        let current = timeOffset ?? 0
-                        let newOffset = max(current - 30, -120)
-                        timeOffset = newOffset
-                        Task { await loadBoard(type: selectedBoard) }
-                    } label: {
-                        HStack {
-                            Spacer()
-                            Label("Show earlier services", systemImage: "chevron.up")
-                                .font(.subheadline.weight(.medium))
-                            Spacer()
-                        }
-                        .foregroundStyle(Theme.brand)
-                    }
-                    .listRowBackground(Theme.brandSubtle)
-                    .disabled(timeOffset ?? 0 <= -120)
+        Group {
+            if let serviceBinding = selectedService {
+                List(selection: serviceBinding) {
+                    serviceListRows
                 }
-
-                // Train services
-                if let trains = board?.trainServices, !trains.isEmpty {
-                    if showServiceTypeHeaders {
-                        Section {
-                            Label("Trains", systemImage: "tram.fill")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Theme.brand)
-                                .listRowBackground(Color.clear)
-                        }
-                    }
-
-                    ForEach(trains) { service in
-                        Section {
-                            NavigationLink(value: service) {
-                                DepartureRow(service: service, boardType: selectedBoard)
-                            }
-                            .contextMenu {
-                                serviceContextMenu(service)
-                            }
-                            .listRowBackground(
-                                selectedServiceID == service.serviceId
-                                    ? Theme.brandSubtle : nil
-                            )
-                        }
-                    }
-                }
-
-                // Bus services
-                if let buses = board?.busServices, !buses.isEmpty {
-                    if showServiceTypeHeaders {
-                        Section {
-                            Label("Buses", systemImage: "bus.fill")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Theme.brand)
-                                .listRowBackground(Color.clear)
-                        }
-                    }
-
-                    ForEach(buses) { service in
-                        Section {
-                            NavigationLink(value: service) {
-                                DepartureRow(service: service, boardType: selectedBoard)
-                            }
-                            .contextMenu {
-                                serviceContextMenu(service)
-                            }
-                            .listRowBackground(
-                                selectedServiceID == service.serviceId
-                                    ? Theme.brandSubtle : nil
-                            )
-                        }
-                    }
-                }
-
-                // Show later trains button
-                Section {
-                    Button {
-                        let current = timeOffset ?? 0
-                        timeOffset = current + 30
-                        Task { await loadBoard(type: selectedBoard) }
-                    } label: {
-                        HStack {
-                            Spacer()
-                            Label("Show later services", systemImage: "chevron.down")
-                                .font(.subheadline.weight(.medium))
-                            Spacer()
-                        }
-                        .foregroundStyle(Theme.brand)
-                    }
-                    .listRowBackground(Theme.brandSubtle)
-                }
-
-                HStack {
-                    Spacer()
-                    Image("NRE")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(height: 80)
-                        .opacity(0.6)
-                    Spacer()
-                }
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-            } else if let errorMessage {
-                Text(errorMessage)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding()
-                    .frame(maxWidth: .infinity)
-            } else if !isLoading {
-                if let filterStation {
-                    VStack(spacing: 12) {
-                        Text("No services \(filterType == "to" ? "calling at" : "from") \(filterStation.name)")
-                            .foregroundStyle(.secondary)
-                        Button("Clear Filter") {
-                            self.filterStation = nil
-                            Task { await loadBoard(type: selectedBoard) }
-                        }
-                        .foregroundStyle(Theme.brand)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                } else {
-                    Text("No services available")
-                        .foregroundStyle(.secondary)
+            } else {
+                List {
+                    serviceListRows
                 }
             }
         }
@@ -259,23 +147,19 @@ struct DepartureBoardView: View {
         }
         .animation(.easeInOut(duration: 0.25), value: timeOffset)
         .animation(.easeInOut(duration: 0.25), value: filterStation?.crsCode)
-        .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
-            tickDate = Date()
-        }
         .toolbar {
+            if let updated = lastBoardUpdate {
+                ToolbarItem(placement: horizontalSizeClass == .regular ? .bottomBar : .navigationBarTrailing) {
+                    TimelineView(.periodic(from: .now, by: 10)) { context in
+                        Text(ContentView.fuzzyLabel(from: updated, tick: context.date))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .fixedSize()
+                    }
+                }
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 12) {
-                    if let updated = lastBoardUpdate {
-                        TimelineView(.periodic(from: .now, by: 10)) { context in
-                            Text(ContentView.fuzzyLabel(from: updated, tick: context.date))
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                                .fixedSize()
-                                .padding(.leading, 8)
-                        }
-                        Divider()
-                            .frame(height: 16)
-                    }
                     Button {
                         toggleBoardFavourite()
                     } label: {
@@ -309,7 +193,8 @@ struct DepartureBoardView: View {
             }, onNavigate: { boardType in
                 if let station = StationCache.load()?.first(where: { $0.crsCode == crs }) {
                     stationInfoCrs = nil
-                    navigationPath.append(StationDestination(station: station, boardType: boardType))
+                    let dest = StationDestination(station: station, boardType: boardType)
+                    if let onNavigateToStation { onNavigateToStation(dest) } else { navigationPath.append(dest) }
                 }
             })
         }
@@ -366,7 +251,11 @@ struct DepartureBoardView: View {
                let service = (board?.trainServices ?? []).first(where: { $0.serviceId == pendingServiceID })
                     ?? (board?.busServices ?? []).first(where: { $0.serviceId == pendingServiceID }) {
                 didAutoNavigate = true
-                navigationPath.append(service)
+                if let selectedService {
+                    selectedService.wrappedValue = service
+                } else {
+                    navigationPath.append(service)
+                }
             }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
@@ -374,6 +263,129 @@ struct DepartureBoardView: View {
                 try? await loadBoard(type: selectedBoard, silent: true)
             }
         }
+    }
+
+    // MARK: - Service List Rows
+
+    @ViewBuilder
+    private var serviceListRows: some View {
+        if hasAnyServices {
+            // Show earlier trains button
+            Section {
+                Button {
+                    let current = timeOffset ?? 0
+                    let newOffset = max(current - 30, -120)
+                    timeOffset = newOffset
+                    Task { await loadBoard(type: selectedBoard) }
+                } label: {
+                    HStack {
+                        Spacer()
+                        Label("Show earlier services", systemImage: "chevron.up")
+                            .font(.subheadline.weight(.medium))
+                        Spacer()
+                    }
+                    .foregroundStyle(Theme.brand)
+                }
+                .listRowBackground(Theme.brandSubtle)
+                .disabled(timeOffset ?? 0 <= -120)
+            }
+
+            // Train services
+            if let trains = board?.trainServices, !trains.isEmpty {
+                if showServiceTypeHeaders {
+                    Section {
+                        Label("Trains", systemImage: "tram.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Theme.brand)
+                            .listRowBackground(Color.clear)
+                    }
+                }
+
+                ForEach(trains) { service in
+                    Section { serviceRow(service) }
+                }
+            }
+
+            // Bus services
+            if let buses = board?.busServices, !buses.isEmpty {
+                if showServiceTypeHeaders {
+                    Section {
+                        Label("Buses", systemImage: "bus.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Theme.brand)
+                            .listRowBackground(Color.clear)
+                    }
+                }
+
+                ForEach(buses) { service in
+                    Section { serviceRow(service) }
+                }
+            }
+
+            // Show later trains button
+            Section {
+                Button {
+                    let current = timeOffset ?? 0
+                    timeOffset = current + 30
+                    Task { await loadBoard(type: selectedBoard) }
+                } label: {
+                    HStack {
+                        Spacer()
+                        Label("Show later services", systemImage: "chevron.down")
+                            .font(.subheadline.weight(.medium))
+                        Spacer()
+                    }
+                    .foregroundStyle(Theme.brand)
+                }
+                .listRowBackground(Theme.brandSubtle)
+            }
+
+            HStack {
+                Spacer()
+                Image("NRE")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: 80)
+                    .opacity(0.6)
+                Spacer()
+            }
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+        } else if let errorMessage {
+            Text(errorMessage)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding()
+                .frame(maxWidth: .infinity)
+        } else if !isLoading {
+            if let filterStation {
+                VStack(spacing: 12) {
+                    Text("No services \(filterType == "to" ? "calling at" : "from") \(filterStation.name)")
+                        .foregroundStyle(.secondary)
+                    Button("Clear Filter") {
+                        self.filterStation = nil
+                        Task { await loadBoard(type: selectedBoard) }
+                    }
+                    .foregroundStyle(Theme.brand)
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+            } else {
+                Text("No services available")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    // MARK: - Service Row
+
+    @ViewBuilder
+    private func serviceRow(_ service: Service) -> some View {
+        NavigationLink(value: service) {
+            DepartureRow(service: service, boardType: selectedBoard)
+        }
+        .contextMenu { serviceContextMenu(service) }
+        .listRowBackground(highlightedServiceID == service.serviceId ? Theme.brandSubtle : nil)
     }
 
     // MARK: - Context Menu
@@ -423,13 +435,15 @@ struct DepartureBoardView: View {
     private func stationMenuButtons(crs: String, name: String) -> some View {
         if let station = StationCache.load()?.first(where: { $0.crsCode == crs }) {
             Button {
-                navigationPath.append(StationDestination(station: station, boardType: .departures))
+                let dest = StationDestination(station: station, boardType: .departures)
+                if let onNavigateToStation { onNavigateToStation(dest) } else { navigationPath.append(dest) }
             } label: {
                 Label("Departures", systemImage: "arrow.up.right")
             }
 
             Button {
-                navigationPath.append(StationDestination(station: station, boardType: .arrivals))
+                let dest = StationDestination(station: station, boardType: .arrivals)
+                if let onNavigateToStation { onNavigateToStation(dest) } else { navigationPath.append(dest) }
             } label: {
                 Label("Arrivals", systemImage: "arrow.down.left")
             }

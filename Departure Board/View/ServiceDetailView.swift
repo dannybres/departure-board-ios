@@ -115,6 +115,7 @@ struct ServiceDetailView: View {
     let service: Service
     let boardType: BoardType
     @Binding var navigationPath: NavigationPath
+    var onNavigateToStation: ((StationDestination) -> Void)?
 
     @State private var detail: ServiceDetail?
     @State private var isLoading = true
@@ -123,6 +124,7 @@ struct ServiceDetailView: View {
     @State private var showInfoSheet = false
     @State private var selectedMapPin: String?
     @State private var lastDetailUpdate: Date? = nil
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
         Group {
@@ -155,25 +157,22 @@ struct ServiceDetailView: View {
         }
         .navigationTitle(navigationTitleText)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 12) {
-                    if let updated = lastDetailUpdate {
-                        TimelineView(.periodic(from: .now, by: 10)) { context in
-                            Text(ContentView.fuzzyLabel(from: updated, tick: context.date))
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                                .fixedSize()
-                                .padding(.leading, 8)
-                        }
-                        Divider()
-                            .frame(height: 16)
+            if let updated = lastDetailUpdate {
+                ToolbarItem(placement: horizontalSizeClass == .regular ? .bottomBar : .topBarTrailing) {
+                    TimelineView(.periodic(from: .now, by: 10)) { context in
+                        Text(ContentView.fuzzyLabel(from: updated, tick: context.date))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .fixedSize()
                     }
-                    if detail != nil {
-                        Button {
-                            showInfoSheet = true
-                        } label: {
-                            Image(systemName: "info.circle")
-                        }
+                }
+            }
+            if detail != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showInfoSheet = true
+                    } label: {
+                        Image(systemName: "info.circle")
                     }
                 }
             }
@@ -195,7 +194,8 @@ struct ServiceDetailView: View {
             }, onNavigate: { boardType in
                 if let station = StationCache.load()?.first(where: { $0.crsCode == crs }) {
                     stationInfoCrs = nil
-                    navigationPath.append(StationDestination(station: station, boardType: boardType))
+                    let dest = StationDestination(station: station, boardType: boardType)
+                    if let onNavigateToStation { onNavigateToStation(dest) } else { navigationPath.append(dest) }
                 }
             })
         }
@@ -809,13 +809,15 @@ struct ServiceDetailView: View {
     private func callingPointContextMenu(crs: String, name: String) -> some View {
         if let station = stationFromCache(crs: crs, name: name) {
             Button {
-                navigationPath.append(StationDestination(station: station, boardType: .departures))
+                let dest = StationDestination(station: station, boardType: .departures)
+                if let onNavigateToStation { onNavigateToStation(dest) } else { navigationPath.append(dest) }
             } label: {
                 Label("Show Departures", systemImage: "arrow.up.right")
             }
 
             Button {
-                navigationPath.append(StationDestination(station: station, boardType: .arrivals))
+                let dest = StationDestination(station: station, boardType: .arrivals)
+                if let onNavigateToStation { onNavigateToStation(dest) } else { navigationPath.append(dest) }
             } label: {
                 Label("Show Arrivals", systemImage: "arrow.down.left")
             }

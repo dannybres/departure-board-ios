@@ -137,6 +137,21 @@ struct TicketOfficeOpen: Codable {
 struct DayAndTime: Codable {
     let dayTypes: DayTypes?
     let openingHours: OpeningHours?
+
+    // dayTypes can be either an object or an empty string "" — handle both gracefully
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        openingHours = try container.decodeIfPresent(OpeningHours.self, forKey: .openingHours)
+        if let dt = try? container.decodeIfPresent(DayTypes.self, forKey: .dayTypes) {
+            dayTypes = dt
+        } else {
+            dayTypes = nil
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case dayTypes, openingHours
+    }
 }
 
 struct DayTypes: Codable {
@@ -150,6 +165,7 @@ struct DayTypes: Codable {
     let friday: String?
     let saturday: String?
     let sunday: String?
+    let weekend: String?
 
     var description: String {
         var days: [String] = []
@@ -163,6 +179,7 @@ struct DayTypes: Codable {
         if friday != nil { days.append("Fri") }
         if saturday != nil { days.append("Sat") }
         if sunday != nil { days.append("Sun") }
+        if weekend != nil { days.append("Weekends") }
         return days.joined(separator: ", ")
     }
 }
@@ -317,6 +334,15 @@ struct CarParkCharges: Codable {
     let free: Bool?
     let daily: String?
     let hourly: String?
+    let perHour: String?
+    let offPeak: String?
+    let weekly: String?
+    let monthly: String?
+    let threeMonthly: String?
+    let annual: String?
+    let note: String?
+
+    var effectiveHourly: String? { hourly ?? perHour }
 }
 
 // MARK: - Alerts

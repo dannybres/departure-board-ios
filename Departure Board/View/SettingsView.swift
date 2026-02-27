@@ -137,6 +137,88 @@ struct SettingsView: View {
                 }
             }
         }
+        Section {
+            Text("You can open specific boards directly from Safari, Shortcuts, or any app that supports custom URLs. Just tap a link or build your own.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+                .padding(.bottom, 4)
+
+            ForEach(urlSchemeExamples, id: \.url) { example in
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(example.title)
+                        .font(.subheadline.weight(.medium))
+                    Text(example.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(example.url)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(Theme.brand)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if let url = URL(string: example.url) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                .contextMenu {
+                    Button {
+                        UIPasteboard.general.string = example.url
+                    } label: {
+                        Label("Copy URL", systemImage: "doc.on.doc")
+                    }
+                    Button {
+                        if let url = URL(string: example.url) {
+                            UIApplication.shared.open(url)
+                        }
+                    } label: {
+                        Label("Open", systemImage: "arrow.up.right.square")
+                    }
+                }
+            }
+        } header: {
+            Label("URL Scheme", systemImage: "link")
+        } footer: {
+            Text("Tap any example to open it. Long press to copy the URL.")
+        }
+
         .navigationTitle("Settings")
     }
+
+    private struct URLSchemeExample {
+        let title: String
+        let description: String
+        let url: String
+    }
+
+    private let urlSchemeExamples: [URLSchemeExample] = [
+        URLSchemeExample(
+            title: "Departures from Manchester Piccadilly",
+            description: "Opens the departures board for a station. Replace MAN with any CRS code.",
+            url: "departure://departures/MAN"
+        ),
+        URLSchemeExample(
+            title: "Arrivals at Leeds",
+            description: "Opens the arrivals board instead of departures.",
+            url: "departure://arrivals/LDS"
+        ),
+        URLSchemeExample(
+            title: "Station information for York",
+            description: "Opens the station info sheet — facilities, access, parking and more.",
+            url: "departure://station/YRK"
+        ),
+        URLSchemeExample(
+            title: "Departures from Liverpool Lime Street",
+            description: "Another departures example — great for a Shortcuts widget or home screen bookmark.",
+            url: "departure://departures/LIV"
+        ),
+        URLSchemeExample(
+            title: "Arrivals at Newcastle",
+            description: "Useful if you are meeting someone off a train and want to check arrivals quickly.",
+            url: "departure://arrivals/NCL"
+        ),
+    ]
 }

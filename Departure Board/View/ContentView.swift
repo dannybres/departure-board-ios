@@ -122,6 +122,11 @@ struct ContentView: View {
     @State private var nextServiceSheetItem: NextServiceSheetItem?
     @State private var lastServicesUpdate: Date? = nil
     @State private var tickDate = Date()
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var selectedStation: StationDestination?
+    @State private var selectedService: Service?
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var dummyStationSelection: StationDestination? = nil
 
     // MARK: - Unified Favourites
 
@@ -230,7 +235,7 @@ struct ContentView: View {
     private func navigateToFavouriteEntry(_ entry: FavouriteEntry) {
         switch entry {
         case .board(let station, let boardType):
-            navigationPath.append(StationDestination(station: station, boardType: boardType))
+            navigate(to: StationDestination(station: station, boardType: boardType))
         case .filter(let filter):
             navigateToFilter(filter)
         }
@@ -304,12 +309,31 @@ struct ContentView: View {
     private func navigateToFilter(_ filter: SavedFilter) {
         if let station = viewModel.stations.first(where: { $0.crsCode == filter.stationCrs }),
            let filterStn = viewModel.stations.first(where: { $0.crsCode == filter.filterCrs }) {
-            navigationPath.append(StationDestination(
+            navigate(to: StationDestination(
                 station: station,
                 boardType: filter.boardType,
                 filterStation: filterStn,
                 filterType: filter.filterType
             ))
+        }
+    }
+
+    /// True when the window is too narrow to show sidebar + content side-by-side.
+    /// 1024pt is Apple's standard breakpoint for 3-column layouts.
+    private var isSidebarOverlaying: Bool {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first(where: { $0.activationState == .foregroundActive })
+        let width = scene?.coordinateSpace.bounds.width ?? 0
+        return width < 1024
+    }
+
+    private func navigate(to destination: StationDestination) {
+        if horizontalSizeClass == .regular {
+            selectedStation = destination
+            selectedService = nil
+        } else {
+            navigationPath.append(destination)
         }
     }
 
@@ -464,16 +488,22 @@ struct ContentView: View {
     }
 
     var body: some View {
+        if horizontalSizeClass == .regular {
+            padBody
+        } else {
+            phoneBody
+        }
+    }
+
+    // MARK: - Phone Layout
+
+    private var phoneBody: some View {
         NavigationStack(path: $navigationPath) {
             stationListView
                 .navigationTitle("Departure Board")
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            showSettings = true
-                        } label: {
-                            Image(systemName: "gearshape")
-                        }
+                        Button { showSettings = true } label: { Image(systemName: "gearshape") }
                     }
                 }
                 .sheet(isPresented: $showSettings) {
@@ -514,26 +544,19 @@ struct ContentView: View {
                     }
                     .tint(Theme.brand)
                 }
-                .navigationDestination(for: Station.self) { station in
-                    DepartureBoardView(station: station, navigationPath: $navigationPath)
-                }
                 .navigationDestination(for: StationDestination.self) { dest in
                     DepartureBoardView(station: dest.station, initialBoardType: dest.boardType, pendingServiceID: dest.pendingServiceID, initialFilterStation: dest.filterStation, initialFilterType: dest.filterType, navigationPath: $navigationPath)
                 }
                 .onAppear { locationManager.refresh() }
                 .onChange(of: scenePhase) {
-                    if scenePhase == .active {
-                        locationManager.refresh()
-                    }
+                    if scenePhase == .active { locationManager.refresh() }
                 }
                 .onChange(of: locationManager.userLocation) {
                     guard locationManager.userLocation != nil, !hasPushedNearbyStation else { return }
                     guard deepLink == nil else { return }
                     guard autoLoadMode != "off" else { return }
-
                     let destination = resolveAutoLoadDestination()
                     guard let destination else { return }
-
                     hasPushedNearbyStation = true
                     Task {
                         try? await Task.sleep(for: .milliseconds(600))
@@ -545,145 +568,260 @@ struct ContentView: View {
                     deepLink = nil
                     handleDeepLink(link)
                 }
-
         }
+    }
 
+    // MARK: - iPad Layout
+
+    private var padBody: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            NavigationStack {
+                padStationListView
+                    .navigationTitle("Departure Board")
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button { showSettings = true } label: { Image(systemName: "gearshape") }
+                        }
+                    }
+                    .sheet(isPresented: $showSettings) {
+                        NavigationStack {
+                            SettingsView(viewModel: viewModel)
+                                .toolbar {
+                                    ToolbarItem(placement: .topBarTrailing) {
+                                        Button("Done") { showSettings = false }
+                                    }
+                                }
+                        }
+                        .tint(Theme.brand)
+                    }
+                    .sheet(item: $stationInfoCrs) { crs in
+                        StationInfoView(crs: crs, onDismiss: {
+                            stationInfoCrs = nil
+                        }, onNavigate: { boardType in
+                            if let station = StationCache.load()?.first(where: { $0.crsCode == crs }) {
+                                stationInfoCrs = nil
+                                navigate(to: StationDestination(station: station, boardType: boardType))
+                            }
+                        })
+                    }
+                    .onAppear { locationManager.refresh() }
+                    .onChange(of: scenePhase) {
+                        if scenePhase == .active { locationManager.refresh() }
+                    }
+                    .onChange(of: locationManager.userLocation) {
+                        guard locationManager.userLocation != nil, !hasPushedNearbyStation else { return }
+                        guard deepLink == nil else { return }
+                        guard autoLoadMode != "off" else { return }
+                        let destination = resolveAutoLoadDestination()
+                        guard let destination else { return }
+                        hasPushedNearbyStation = true
+                        Task {
+                            try? await Task.sleep(for: .milliseconds(600))
+                            selectedStation = destination
+                        }
+                    }
+                    .onChange(of: deepLink) {
+                        guard let link = deepLink else { return }
+                        deepLink = nil
+                        handleDeepLink(link)
+                    }
+            }
+            .navigationSplitViewColumnWidth(min: 300, ideal: 360, max: 420)
+            .onChange(of: selectedStation) {
+                guard selectedStation != nil else { return }
+                if isSidebarOverlaying { columnVisibility = .doubleColumn }
+            }
+        } content: {
+            Group {
+                if let dest = selectedStation {
+                    DepartureBoardView(
+                        station: dest.station,
+                        initialBoardType: dest.boardType,
+                        pendingServiceID: dest.pendingServiceID,
+                        initialFilterStation: dest.filterStation,
+                        initialFilterType: dest.filterType,
+                        selectedService: $selectedService,
+                        onNavigateToStation: { navigate(to: $0) },
+                        navigationPath: $navigationPath
+                    )
+                    .id(dest.id)
+                } else {
+                    ContentUnavailableView("Select a Station", systemImage: "tram.fill", description: Text("Choose a station from the list to view its board"))
+                }
+            }
+            .navigationSplitViewColumnWidth(min: 430, ideal: 540)
+        } detail: {
+            Group {
+                if let service = selectedService, let dest = selectedStation {
+                    ServiceDetailView(
+                        service: service,
+                        boardType: dest.boardType,
+                        navigationPath: $navigationPath,
+                        onNavigateToStation: { navigate(to: $0) }
+                    )
+                    .id(service.serviceId)
+                } else {
+                    ContentUnavailableView("Select a Service", systemImage: "train.side.front.car", description: Text("Choose a service from the board to view its details"))
+                }
+            }
+        }
     }
 
     // MARK: - Station List
 
-    private var stationListView: some View {
-        List {
-            if !isSearching {
-                if !favouriteDisplayItems.isEmpty {
-                    Section {
-                        ForEach(favouriteDisplayItems) { item in
-                            switch item {
-                            case .station(let station, let boardType):
-                                favouriteStationRow(station, boardType: boardType, itemID: item.id)
-                                    .swipeActions(edge: .trailing) {
-                                        Button {
-                                            removeFavouriteByID(item.id)
-                                        } label: {
-                                            Label("Unfavourite", systemImage: "star.slash")
-                                        }
-                                        .tint(.red)
-                                    }
-                            case .filter(let filter):
-                                filterRow(filter, showStar: true)
-                                    .swipeActions(edge: .trailing) {
-                                        Button {
-                                            toggleFilterFavourite(filter)
-                                        } label: {
-                                            Label("Unfavourite", systemImage: "star.slash")
-                                        }
-                                        .tint(.red)
-                                    }
-                            }
-                        }
-                        .onMove(perform: moveFavourite)
-                    } header: {
-                        HStack {
-                            sectionHeader("Favourites", icon: "star.fill")
-                            if showNextServiceOnFavourites, let label = fuzzyUpdateLabel {
-                                Text(label)
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                                    .textCase(nil)
-                            }
-                            Spacer()
-                            Button(isEditingFavourites ? "Done" : "Edit") {
-                                withAnimation {
-                                    isEditingFavourites.toggle()
-                                }
-                            }
-                            .font(.subheadline)
-                            .textCase(nil)
-                        }
-                    }
+    // Shared list modifiers applied to both phone and pad list containers
+    private func applyStationListModifiers<V: View>(_ list: V) -> some View {
+        list
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(horizontalSizeClass == .regular ? .hidden : .visible)
+            .background(horizontalSizeClass == .regular ? Color(UIColor.systemGroupedBackground) : Color.clear)
+            .environment(\.editMode, isEditingFavourites ? .constant(.active) : .constant(.inactive))
+            .refreshable {
+                viewModel.reloadFromCache()
+                Task { await fetchNextServices() }
+            }
+            .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
+                tickDate = Date()
+            }
+            .task {
+                await fetchNextServices()
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(60))
+                    await fetchNextServices()
                 }
+            }
+            .searchable(text: $searchText, prompt: "Search stations")
+    }
 
-                if showRecentFilters && !recentFilters.isEmpty {
-                    Section {
-                        ForEach(recentFilters) { filter in
-                            filterRow(filter)
+    // iPad: List with selection binding so NavigationLink drives the split view content column
+    var padStationListView: some View {
+        applyStationListModifiers(List(selection: $selectedStation) {
+            stationListRows
+        })
+    }
+
+    // iPhone / compact: plain List so NavigationLink pushes onto the NavigationStack
+    private var stationListView: some View {
+        applyStationListModifiers(List {
+            stationListRows
+        })
+    }
+
+    @ViewBuilder
+    private var stationListRows: some View {
+        if !isSearching {
+            if !favouriteDisplayItems.isEmpty {
+                Section {
+                    ForEach(favouriteDisplayItems) { item in
+                        switch item {
+                        case .station(let station, let boardType):
+                            favouriteStationRow(station, boardType: boardType, itemID: item.id)
                                 .swipeActions(edge: .trailing) {
                                     Button {
-                                        withAnimation {
-                                            removeFilter(filter)
-                                        }
+                                        removeFavouriteByID(item.id)
                                     } label: {
-                                        Label("Remove", systemImage: "trash")
+                                        Label("Unfavourite", systemImage: "star.slash")
                                     }
-                                    .tint(.gray)
+                                    .tint(.red)
                                 }
-                                .swipeActions(edge: .leading) {
+                        case .filter(let filter):
+                            filterRow(filter, showStar: true)
+                                .swipeActions(edge: .trailing) {
                                     Button {
-                                        withAnimation {
-                                            toggleFilterFavourite(filter)
-                                        }
+                                        toggleFilterFavourite(filter)
                                     } label: {
-                                        Label("Favourite", systemImage: "star.fill")
+                                        Label("Unfavourite", systemImage: "star.slash")
                                     }
-                                    .tint(.yellow)
+                                    .tint(.red)
                                 }
                         }
-                    } header: {
-                        sectionHeader("Recent Filters", icon: "clock.arrow.circlepath")
                     }
-                }
-
-                if !nearbyStations.isEmpty {
-                    Section {
-                        ForEach(nearbyStations) { station in
-                            nearbyRow(station)
-                                .swipeActions(edge: .leading) {
-                                    Button {
-                                        addStationFavourite(station, boardType: .departures)
-                                    } label: {
-                                        Label("Favourite", systemImage: "star.fill")
-                                    }
-                                    .tint(.yellow)
-                                }
+                    .onMove(perform: moveFavourite)
+                } header: {
+                    HStack {
+                        sectionHeader("Favourites", icon: "star.fill")
+                        if showNextServiceOnFavourites, let label = fuzzyUpdateLabel {
+                            Text(label)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .textCase(nil)
                         }
-                    } header: {
-                        sectionHeader("Nearby", icon: "location.fill")
-                    }
-                }
-            }
-
-            Section {
-                ForEach(otherStations) { station in
-                    stationRow(station)
-                        .swipeActions(edge: .leading) {
-                            Button {
-                                addStationFavourite(station, boardType: .departures)
-                            } label: {
-                                Label("Favourite", systemImage: "star.fill")
+                        Spacer()
+                        Button(isEditingFavourites ? "Done" : "Edit") {
+                            withAnimation {
+                                isEditingFavourites.toggle()
                             }
-                            .tint(.yellow)
                         }
+                        .font(.subheadline)
+                        .textCase(nil)
+                    }
                 }
-            } header: {
-                sectionHeader("All Stations", icon: "train.side.front.car")
+            }
+
+            if showRecentFilters && !recentFilters.isEmpty {
+                Section {
+                    ForEach(recentFilters) { filter in
+                        filterRow(filter)
+                            .swipeActions(edge: .trailing) {
+                                Button {
+                                    withAnimation {
+                                        removeFilter(filter)
+                                    }
+                                } label: {
+                                    Label("Remove", systemImage: "trash")
+                                }
+                                .tint(.gray)
+                            }
+                            .swipeActions(edge: .leading) {
+                                Button {
+                                    withAnimation {
+                                        toggleFilterFavourite(filter)
+                                    }
+                                } label: {
+                                    Label("Favourite", systemImage: "star.fill")
+                                }
+                                .tint(.yellow)
+                            }
+                    }
+                } header: {
+                    sectionHeader("Recent Filters", icon: "clock.arrow.circlepath")
+                }
+            }
+
+            if !nearbyStations.isEmpty {
+                Section {
+                    ForEach(nearbyStations) { station in
+                        nearbyRow(station)
+                            .swipeActions(edge: .leading) {
+                                Button {
+                                    addStationFavourite(station, boardType: .departures)
+                                } label: {
+                                    Label("Favourite", systemImage: "star.fill")
+                                }
+                                .tint(.yellow)
+                            }
+                    }
+                } header: {
+                    sectionHeader("Nearby", icon: "location.fill")
+                }
             }
         }
-        .environment(\.editMode, isEditingFavourites ? .constant(.active) : .constant(.inactive))
-        .refreshable {
-            viewModel.reloadFromCache()
-            Task { await fetchNextServices() }
-        }
-        .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
-            tickDate = Date()
-        }
-        .task {
-            await fetchNextServices()
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
-                await fetchNextServices()
+
+        Section {
+            ForEach(otherStations) { station in
+                stationRow(station)
+                    .swipeActions(edge: .leading) {
+                        Button {
+                            addStationFavourite(station, boardType: .departures)
+                        } label: {
+                            Label("Favourite", systemImage: "star.fill")
+                        }
+                        .tint(.yellow)
+                    }
             }
+        } header: {
+            sectionHeader("All Stations", icon: "train.side.front.car")
         }
-        .searchable(text: $searchText, prompt: "Search stations")
     }
 
     // MARK: - Deep Linking
@@ -701,18 +839,20 @@ struct ContentView: View {
 
         hasPushedNearbyStation = true
 
-        navigationPath = NavigationPath()
+        if horizontalSizeClass != .regular {
+            navigationPath = NavigationPath()
+        }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             switch link {
             case .departures:
-                navigationPath.append(StationDestination(station: station, boardType: .departures))
+                navigate(to: StationDestination(station: station, boardType: .departures))
             case .arrivals:
-                navigationPath.append(StationDestination(station: station, boardType: .arrivals))
+                navigate(to: StationDestination(station: station, boardType: .arrivals))
             case .station:
                 stationInfoCrs = station.crsCode
             case .service(_, let serviceId):
-                navigationPath.append(StationDestination(station: station, boardType: .departures, pendingServiceID: serviceId))
+                navigate(to: StationDestination(station: station, boardType: .departures, pendingServiceID: serviceId))
             }
         }
     }
@@ -751,13 +891,13 @@ struct ContentView: View {
     @ViewBuilder
     private func stationContextMenu(for station: Station) -> some View {
         Button {
-            navigationPath.append(StationDestination(station: station, boardType: .departures))
+            navigate(to: StationDestination(station: station, boardType: .departures))
         } label: {
             Label("Show Departures", systemImage: "arrow.up.right")
         }
 
         Button {
-            navigationPath.append(StationDestination(station: station, boardType: .arrivals))
+            navigate(to: StationDestination(station: station, boardType: .arrivals))
         } label: {
             Label("Show Arrivals", systemImage: "arrow.down.left")
         }
@@ -826,9 +966,14 @@ struct ContentView: View {
         if let svc = nextServices[itemID]?.service {
             let scheduled = boardType == .departures ? svc.std : svc.sta
             let location = boardType == .departures ? svc.destination.first?.locationName : svc.origin.first?.locationName
-            Section([scheduled, location].compactMap { $0 }.joined(separator: " · ")) {
+            Section("Next: " + [scheduled, location].compactMap { $0 }.joined(separator: " · ")) {
                 Button {
-                    nextServiceSheetItem = NextServiceSheetItem(service: svc, boardType: boardType)
+                    if horizontalSizeClass == .regular {
+                        selectedStation = StationDestination(station: station, boardType: boardType)
+                        selectedService = svc
+                    } else {
+                        nextServiceSheetItem = NextServiceSheetItem(service: svc, boardType: boardType)
+                    }
                 } label: {
                     Label("View Service", systemImage: "train.side.front.car")
                 }
@@ -837,13 +982,13 @@ struct ContentView: View {
         }
 
         Button {
-            navigationPath.append(StationDestination(station: station, boardType: .departures))
+            navigate(to: StationDestination(station: station, boardType: .departures))
         } label: {
             Label("Show Departures", systemImage: "arrow.up.right")
         }
 
         Button {
-            navigationPath.append(StationDestination(station: station, boardType: .arrivals))
+            navigate(to: StationDestination(station: station, boardType: .arrivals))
         } label: {
             Label("Show Arrivals", systemImage: "arrow.down.left")
         }
@@ -897,9 +1042,17 @@ struct ContentView: View {
         if let svc = nextServices[filter.id]?.service {
             let scheduled = filter.boardType == .departures ? svc.std : svc.sta
             let location = filter.boardType == .departures ? svc.destination.first?.locationName : svc.origin.first?.locationName
-            Section([scheduled, location].compactMap { $0 }.joined(separator: " · ")) {
+            Section("Next: " + [scheduled, location].compactMap { $0 }.joined(separator: " · ")) {
                 Button {
-                    nextServiceSheetItem = NextServiceSheetItem(service: svc, boardType: filter.boardType)
+                    if horizontalSizeClass == .regular {
+                        if let station = viewModel.stations.first(where: { $0.crsCode == filter.stationCrs }),
+                           let filterStn = viewModel.stations.first(where: { $0.crsCode == filter.filterCrs }) {
+                            selectedStation = StationDestination(station: station, boardType: filter.boardType, filterStation: filterStn, filterType: filter.filterType)
+                        }
+                        selectedService = svc
+                    } else {
+                        nextServiceSheetItem = NextServiceSheetItem(service: svc, boardType: filter.boardType)
+                    }
                 } label: {
                     Label("View Service", systemImage: "train.side.front.car")
                 }
@@ -916,14 +1069,14 @@ struct ContentView: View {
         Menu {
             Button {
                 if let station = viewModel.stations.first(where: { $0.crsCode == filter.stationCrs }) {
-                    navigationPath.append(StationDestination(station: station, boardType: .departures))
+                    navigate(to: StationDestination(station: station, boardType: .departures))
                 }
             } label: {
                 Label("Departures", systemImage: "arrow.up.right")
             }
             Button {
                 if let station = viewModel.stations.first(where: { $0.crsCode == filter.stationCrs }) {
-                    navigationPath.append(StationDestination(station: station, boardType: .arrivals))
+                    navigate(to: StationDestination(station: station, boardType: .arrivals))
                 }
             } label: {
                 Label("Arrivals", systemImage: "arrow.down.left")
@@ -947,14 +1100,14 @@ struct ContentView: View {
         Menu {
             Button {
                 if let station = viewModel.stations.first(where: { $0.crsCode == filter.filterCrs }) {
-                    navigationPath.append(StationDestination(station: station, boardType: .departures))
+                    navigate(to: StationDestination(station: station, boardType: .departures))
                 }
             } label: {
                 Label("Departures", systemImage: "arrow.up.right")
             }
             Button {
                 if let station = viewModel.stations.first(where: { $0.crsCode == filter.filterCrs }) {
-                    navigationPath.append(StationDestination(station: station, boardType: .arrivals))
+                    navigate(to: StationDestination(station: station, boardType: .arrivals))
                 }
             } label: {
                 Label("Arrivals", systemImage: "arrow.down.left")
@@ -1028,79 +1181,91 @@ struct ContentView: View {
         .background(Theme.brandSubtle, in: RoundedRectangle(cornerRadius: 4))
     }
 
+    @ViewBuilder
     private func nearbyRow(_ station: Station) -> some View {
-        NavigationLink(value: station) {
+        NavigationLink(value: StationDestination(station: station, boardType: .departures)) {
+            nearbyRowContent(station)
+        }
+        .contextMenu { stationContextMenu(for: station) }
+    }
+
+    private func nearbyRowContent(_ station: Station) -> some View {
+        HStack {
+            crsPill(station.crsCode)
+            VStack(alignment: .leading) {
+                Text(station.name).font(.headline)
+            }
+            Spacer()
+            if hasAnyFavourite(station) {
+                Image(systemName: "star.fill").foregroundStyle(Theme.brand).font(.caption)
+            }
+            if let distance = distanceInMiles(to: station) {
+                Text(String(format: "%.1f mi", distance)).font(.caption).foregroundStyle(.tertiary)
+            }
+            if horizontalSizeClass == .regular {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func stationRow(_ station: Station) -> some View {
+        NavigationLink(value: StationDestination(station: station, boardType: .departures)) {
+            stationRowContent(station)
+        }
+        .contextMenu { stationContextMenu(for: station) }
+    }
+
+    private func stationRowContent(_ station: Station) -> some View {
+        HStack {
+            crsPill(station.crsCode)
+            VStack(alignment: .leading) {
+                Text(station.name).font(.headline)
+            }
+            Spacer()
+            if hasAnyFavourite(station) {
+                Image(systemName: "star.fill").foregroundStyle(Theme.brand).font(.caption)
+            }
+            if horizontalSizeClass == .regular {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func favouriteStationRow(_ station: Station, boardType: BoardType, itemID: String) -> some View {
+        NavigationLink(value: StationDestination(station: station, boardType: boardType)) {
+            favouriteStationRowContent(station, boardType: boardType, itemID: itemID)
+        }
+        .contextMenu { favouriteStationContextMenu(for: station, boardType: boardType) }
+    }
+
+    private func favouriteStationRowContent(_ station: Station, boardType: BoardType, itemID: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
             HStack {
                 crsPill(station.crsCode)
                 VStack(alignment: .leading) {
-                    Text(station.name)
-                        .font(.headline)
+                    Text(station.name).font(.headline)
+                    Text(boardType.rawValue.capitalized).font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer()
-                if hasAnyFavourite(station) {
-                    Image(systemName: "star.fill")
-                        .foregroundStyle(Theme.brand)
-                        .font(.caption)
-                }
-                if let distance = distanceInMiles(to: station) {
-                    Text(String(format: "%.1f mi", distance))
-                        .font(.caption)
+                Image(systemName: boardType == .departures ? "arrow.up.right" : "arrow.down.left")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                if horizontalSizeClass == .regular {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
                         .foregroundStyle(.tertiary)
                 }
             }
-        }
-        .contextMenu {
-            stationContextMenu(for: station)
-        }
-    }
-
-    private func stationRow(_ station: Station) -> some View {
-        NavigationLink(value: station) {
-            HStack {
-                crsPill(station.crsCode)
-                VStack(alignment: .leading) {
-                    Text(station.name)
-                        .font(.headline)
-                }
-                if hasAnyFavourite(station) {
-                    Spacer()
-                    Image(systemName: "star.fill")
-                        .foregroundStyle(Theme.brand)
-                        .font(.caption)
-                }
+            if showNextServiceOnFavourites {
+                nextServicePill(id: itemID, boardType: boardType)
             }
         }
-        .contextMenu {
-            stationContextMenu(for: station)
-        }
-    }
-
-    private func favouriteStationRow(_ station: Station, boardType: BoardType, itemID: String) -> some View {
-        NavigationLink(value: StationDestination(station: station, boardType: boardType)) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    crsPill(station.crsCode)
-                    VStack(alignment: .leading) {
-                        Text(station.name)
-                            .font(.headline)
-                        Text(boardType.rawValue.capitalized)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Image(systemName: boardType == .departures ? "arrow.up.right" : "arrow.down.left")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                if showNextServiceOnFavourites {
-                    nextServicePill(id: itemID, boardType: boardType)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-        .contextMenu {
-            favouriteStationContextMenu(for: station, boardType: boardType)
-        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -1136,7 +1301,6 @@ struct ContentView: View {
                 }
                 if showStar && showNextServiceOnFavourites {
                     nextServicePill(id: filter.id, boardType: filter.boardType)
-                        .padding(.trailing, 20)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
