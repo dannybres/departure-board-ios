@@ -7,6 +7,7 @@
 
 import SwiftUI
 import MapKit
+import Combine
 
 // MARK: - Timeline Types
 
@@ -123,6 +124,8 @@ struct ServiceDetailView: View {
     @State private var stationInfoCrs: String?
     @State private var showInfoSheet = false
     @State private var selectedMapPin: String?
+    @State private var lastDetailUpdate: Date? = nil
+    @State private var tickDate = Date()
 
     var body: some View {
         Group {
@@ -155,6 +158,13 @@ struct ServiceDetailView: View {
         }
         .navigationTitle(navigationTitleText)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                if let updated = lastDetailUpdate {
+                    Text(ContentView.fuzzyLabel(from: updated, tick: tickDate))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 if detail != nil {
                     Button {
@@ -167,9 +177,17 @@ struct ServiceDetailView: View {
         }
         .task {
             await loadDetail(showLoading: true)
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled else { break }
+                await loadDetail(silent: true)
+            }
         }
         .refreshable {
             await loadDetail(showLoading: false)
+        }
+        .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
+            tickDate = Date()
         }
         .sheet(item: $stationInfoCrs) { crs in
             StationInfoView(crs: crs, onDismiss: {
@@ -767,14 +785,15 @@ struct ServiceDetailView: View {
         return .primary
     }
 
-    private func loadDetail(showLoading: Bool = false) async {
+    private func loadDetail(showLoading: Bool = false, silent: Bool = false) async {
         if showLoading { isLoading = true }
         do {
             let result = try await StationViewModel.fetchServiceDetail(serviceId: service.serviceId)
             detail = result
-            errorMessage = nil
+            if !silent { errorMessage = nil }
+            lastDetailUpdate = Date()
         } catch {
-            errorMessage = "Failed to load service details"
+            if !silent { errorMessage = "Failed to load service details" }
         }
         isLoading = false
     }

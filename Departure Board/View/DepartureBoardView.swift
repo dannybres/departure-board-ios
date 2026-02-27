@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Combine
 
 struct DepartureBoardView: View {
 
@@ -29,6 +30,8 @@ struct DepartureBoardView: View {
     @State private var filterStation: Station? = nil
     @State private var filterType: String = "to"
     @State private var showFilterSheet = false
+    @State private var lastBoardUpdate: Date? = nil
+    @State private var tickDate = Date()
     @AppStorage(SharedDefaults.Keys.favouriteItems, store: SharedDefaults.shared) private var favouriteItemsData: Data = Data()
     @AppStorage(SharedDefaults.Keys.savedFilters, store: SharedDefaults.shared) private var savedFiltersData: Data = Data()
 
@@ -256,7 +259,17 @@ struct DepartureBoardView: View {
         }
         .animation(.easeInOut(duration: 0.25), value: timeOffset)
         .animation(.easeInOut(duration: 0.25), value: filterStation?.crsCode)
+        .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
+            tickDate = Date()
+        }
         .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                if let updated = lastBoardUpdate {
+                    Text(ContentView.fuzzyLabel(from: updated, tick: tickDate))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 16) {
                     Button {
@@ -350,6 +363,11 @@ struct DepartureBoardView: View {
                     ?? (board?.busServices ?? []).first(where: { $0.serviceId == pendingServiceID }) {
                 didAutoNavigate = true
                 navigationPath.append(service)
+            }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled else { break }
+                try? await loadBoard(type: selectedBoard, silent: true)
             }
         }
     }
@@ -498,7 +516,7 @@ struct DepartureBoardView: View {
         return offsetString
     }
 
-    private func loadBoard(type: BoardType, showLoading: Bool = false) async {
+    private func loadBoard(type: BoardType, showLoading: Bool = false, silent: Bool = false) async {
         if showLoading { isLoading = true }
         do {
             let result = try await StationViewModel.fetchBoard(for: station.crsCode, type: type, filterCrs: filterStation?.crsCode, filterType: filterStation != nil ? filterType : nil, timeOffset: timeOffset)
@@ -506,10 +524,11 @@ struct DepartureBoardView: View {
                 board = result
                 errorMessage = nil
             }
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            if !silent { UINotificationFeedbackGenerator().notificationOccurred(.success) }
+            lastBoardUpdate = Date()
         } catch {
-            errorMessage = "Failed to load board"
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            if !silent { errorMessage = "Failed to load board" }
+            if !silent { UINotificationFeedbackGenerator().notificationOccurred(.error) }
         }
         isLoading = false
     }

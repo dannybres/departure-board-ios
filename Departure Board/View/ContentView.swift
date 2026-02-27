@@ -7,6 +7,7 @@
 
 import SwiftUI
 import CoreLocation
+import Combine
 
 
 struct StationDestination: Hashable, Identifiable {
@@ -119,6 +120,8 @@ struct ContentView: View {
     @AppStorage("autoLoadDistanceMiles") private var autoLoadDistanceMiles: Int = 2
     @State private var nextServices: [String: BoardSummary] = [:]
     @State private var nextServiceSheetItem: NextServiceSheetItem?
+    @State private var lastServicesUpdate: Date? = nil
+    @State private var tickDate = Date()
 
     // MARK: - Unified Favourites
 
@@ -246,6 +249,7 @@ struct ContentView: View {
         current.append(id)
         setFavouriteItems(current)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        Task { await fetchNextServices() }
     }
 
     private func removeStationFavourite(_ station: Station, boardType: BoardType) {
@@ -282,6 +286,7 @@ struct ContentView: View {
             }
             setFavouriteItems(currentItems)
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            if !wasFavourite { Task { await fetchNextServices() } }
         }
     }
 
@@ -331,11 +336,29 @@ struct ContentView: View {
                 guard index < pairs.count else { break }
                 result[pairs[index].id] = summary
             }
-            withAnimation(.easeOut(duration: 3)) {
+            withAnimation(.easeOut(duration: 0.35)) {
                 nextServices = result
             }
+            lastServicesUpdate = Date()
         } catch {
             // Silent failure — next service info is supplementary
+        }
+    }
+
+    private var fuzzyUpdateLabel: String? {
+        guard let updated = lastServicesUpdate else { return nil }
+        return Self.fuzzyLabel(from: updated, tick: tickDate)
+    }
+
+    static func fuzzyLabel(from updated: Date, tick: Date) -> String {
+        let seconds = Int(tick.timeIntervalSince(updated))
+        switch seconds {
+        case ..<10:   return "Updated just now"
+        case 10..<55: return "Updated about \((seconds / 10) * 10)s ago"
+        case 55..<90: return "Updated about a minute ago"
+        default:
+            let mins = seconds / 60
+            return "Updated about \(mins) minute\(mins == 1 ? "" : "s") ago"
         }
     }
 
@@ -552,6 +575,12 @@ struct ContentView: View {
                     } header: {
                         HStack {
                             sectionHeader("Favourites", icon: "star.fill")
+                            if showNextServiceOnFavourites, let label = fuzzyUpdateLabel {
+                                Text(label)
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                                    .textCase(nil)
+                            }
                             Spacer()
                             Button(isEditingFavourites ? "Done" : "Edit") {
                                 withAnimation {
@@ -634,7 +663,16 @@ struct ContentView: View {
             viewModel.reloadFromCache()
             Task { await fetchNextServices() }
         }
-        .task { await fetchNextServices() }
+        .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
+            tickDate = Date()
+        }
+        .task {
+            await fetchNextServices()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                await fetchNextServices()
+            }
+        }
         .searchable(text: $searchText, prompt: "Search stations")
     }
 
