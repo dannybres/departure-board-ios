@@ -14,6 +14,7 @@ struct SettingsView: View {
     @AppStorage("recentFilterCount") var recentFilterCount: Int = 3
     @AppStorage("showRecentFilters") var showRecentFilters: Bool = true
     @AppStorage("mapsProvider") var mapsProvider: String = "apple"
+    @AppStorage("showNextServiceOnFavourites") var showNextServiceOnFavourites: Bool = true
     @State private var isRefreshing = false
     @State private var lastRefresh: Date? = StationCache.lastRefreshDate()
 
@@ -21,6 +22,10 @@ struct SettingsView: View {
         Form {
             Section("Nearby Stations") {
                 Stepper("Show \(nearbyCount) stations", value: $nearbyCount, in: 1...25)
+            }
+
+            Section("Favourites") {
+                Toggle("Show Next Service", isOn: $showNextServiceOnFavourites)
             }
 
             Section("Recent Filters") {

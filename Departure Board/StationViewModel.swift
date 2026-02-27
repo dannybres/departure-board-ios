@@ -89,6 +89,23 @@ class StationViewModel: ObservableObject {
         return try JSONDecoder().decode(ServiceDetail.self, from: data)
     }
 
+    static func fetchBoards(_ requests: [BoardRequest]) async throws -> [BoardSummary] {
+        guard let url = URL(string: "\(APIConfig.baseURL)/boards") else {
+            throw URLError(.badURL)
+        }
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try JSONEncoder().encode(requests)
+
+        let (data, response) = try await URLSession.shared.data(for: urlRequest)
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode([BoardSummary].self, from: data)
+    }
+
     static func fetchBoard(
         for crs: String,
         type: BoardType = .departures,

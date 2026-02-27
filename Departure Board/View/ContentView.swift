@@ -22,6 +22,72 @@ extension String: @retroactive Identifiable {
     public var id: String { self }
 }
 
+private struct NextServicePillView: View {
+    let service: Service
+    let boardType: BoardType
+    @State private var opacity: Double = 0
+    @State private var height: CGFloat = 0
+    private let targetHeight: CGFloat = 28
+
+    var body: some View {
+        let scheduled    = boardType == .departures ? service.std : service.sta
+        let estimated    = boardType == .departures ? service.etd : service.eta
+        let isOnTime     = estimated == "On time"
+        let isDelayed    = !isOnTime && estimated != nil && !service.isCancelled
+        let locationName = boardType == .departures
+            ? service.destination.first?.locationName
+            : service.origin.first?.locationName
+
+        HStack(spacing: 6) {
+            if let sched = scheduled {
+                Text(sched)
+                    .font(.system(.caption, design: .monospaced).bold())
+            }
+            if let loc = locationName {
+                Text(loc)
+                    .font(.caption)
+                    .lineLimit(1)
+            }
+            if service.isCancelled {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.red)
+                    .font(.caption)
+            } else if isDelayed {
+                Image(systemName: "clock.fill")
+                    .foregroundStyle(.orange)
+                    .font(.caption)
+            }
+            Spacer(minLength: 0)
+            if isDelayed, let exp = estimated {
+                Text(exp)
+                    .font(.system(.caption, design: .monospaced).bold())
+                    .foregroundStyle(.orange)
+            }
+            if let platform = service.platform {
+                Text(service.serviceType == "bus" ? platform : "Plat \(platform)")
+                    .font(.caption.monospacedDigit().weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Color(white: 0.2), in: RoundedRectangle(cornerRadius: 3))
+                    .environment(\.colorScheme, .dark)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(Theme.brandSubtle, in: RoundedRectangle(cornerRadius: 7))
+        .frame(height: height)
+        .clipped()
+        .opacity(opacity)
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.35)) {
+                height = targetHeight
+                opacity = 1
+            }
+        }
+    }
+}
+
 struct ContentView: View {
 
     @Binding var deepLink: DeepLink?
@@ -42,6 +108,8 @@ struct ContentView: View {
     @AppStorage("recentFilterCount") private var recentFilterCount: Int = 3
     @AppStorage("showRecentFilters") private var showRecentFilters: Bool = true
     @AppStorage("mapsProvider") private var mapsProvider: String = "apple"
+    @AppStorage("showNextServiceOnFavourites") private var showNextServiceOnFavourites: Bool = true
+    @State private var nextServices: [String: BoardSummary] = [:]
 
     // MARK: - Unified Favourites
 
@@ -231,6 +299,37 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Next Service Fetch
+
+    private func fetchNextServices() async {
+        guard showNextServiceOnFavourites else { return }
+        let items = favouriteDisplayItems
+        guard !items.isEmpty else { return }
+
+        let pairs: [(id: String, request: BoardRequest)] = items.map { item in
+            switch item {
+            case .station(let station, let boardType):
+                return (item.id, BoardRequest(crs: station.crsCode, type: boardType.rawValue, filterCrs: nil, filterType: nil))
+            case .filter(let filter):
+                return (item.id, BoardRequest(crs: filter.stationCrs, type: filter.boardType.rawValue, filterCrs: filter.filterCrs, filterType: filter.filterType))
+            }
+        }
+
+        do {
+            let summaries = try await StationViewModel.fetchBoards(pairs.map(\.request))
+            var result: [String: BoardSummary] = [:]
+            for (index, summary) in summaries.enumerated() {
+                guard index < pairs.count else { break }
+                result[pairs[index].id] = summary
+            }
+            withAnimation(.easeOut(duration: 3)) {
+                nextServices = result
+            }
+        } catch {
+            // Silent failure — next service info is supplementary
+        }
+    }
+
     // MARK: - Recent Filters
 
     private var recentFilters: [SavedFilter] {
@@ -293,6 +392,14 @@ struct ContentView: View {
                             Image(systemName: "gearshape")
                         }
                     }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            nextServices = [:]
+                            Task { await fetchNextServices() }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                    }
                 }
                 .sheet(isPresented: $showSettings) {
                     NavigationStack {
@@ -332,11 +439,12 @@ struct ContentView: View {
                     guard deepLink == nil else { return }
 
                     if let firstNearby = nearbyStations.first {
-                        withAnimation {
+                        hasPushedNearbyStation = true
+                        Task {
+                            try? await Task.sleep(for: .milliseconds(600))
                             navigationPath.append(
                                 StationDestination(station: firstNearby, boardType: .departures)
                             )
-                            hasPushedNearbyStation = true
                         }
                     }
                 }
@@ -360,7 +468,7 @@ struct ContentView: View {
                         ForEach(favouriteDisplayItems) { item in
                             switch item {
                             case .station(let station, let boardType):
-                                favouriteStationRow(station, boardType: boardType)
+                                favouriteStationRow(station, boardType: boardType, itemID: item.id)
                                     .swipeActions(edge: .trailing) {
                                         Button {
                                             removeFavouriteByID(item.id)
@@ -463,7 +571,11 @@ struct ContentView: View {
             }
         }
         .environment(\.editMode, isEditingFavourites ? .constant(.active) : .constant(.inactive))
-        .refreshable { viewModel.reloadFromCache() }
+        .refreshable {
+            viewModel.reloadFromCache()
+            Task { await fetchNextServices() }
+        }
+        .task { await fetchNextServices() }
         .searchable(text: $searchText, prompt: "Search stations")
     }
 
@@ -811,25 +923,38 @@ struct ContentView: View {
         }
     }
 
-    private func favouriteStationRow(_ station: Station, boardType: BoardType) -> some View {
+    private func favouriteStationRow(_ station: Station, boardType: BoardType, itemID: String) -> some View {
         NavigationLink(value: StationDestination(station: station, boardType: boardType)) {
-            HStack {
-                crsPill(station.crsCode)
-                VStack(alignment: .leading) {
-                    Text(station.name)
-                        .font(.headline)
-                    Text(boardType.rawValue.capitalized)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    crsPill(station.crsCode)
+                    VStack(alignment: .leading) {
+                        Text(station.name)
+                            .font(.headline)
+                        Text(boardType.rawValue.capitalized)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: boardType == .departures ? "arrow.up.right" : "arrow.down.left")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                Spacer()
-                Image(systemName: boardType == .departures ? "arrow.up.right" : "arrow.down.left")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                if showNextServiceOnFavourites {
+                    nextServicePill(id: itemID, boardType: boardType)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .contextMenu {
             favouriteStationContextMenu(for: station, boardType: boardType)
+        }
+    }
+
+    @ViewBuilder
+    private func nextServicePill(id: String, boardType: BoardType) -> some View {
+        if let svc = nextServices[id]?.service {
+            NextServicePillView(service: svc, boardType: boardType)
         }
     }
 
@@ -837,25 +962,32 @@ struct ContentView: View {
         Button {
             navigateToFilter(filter)
         } label: {
-            HStack(spacing: 8) {
-                filterCrsPill(filter)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(filter.stationName)
-                        .font(.headline)
-                    Text("\(filter.filterLabel) · \(filter.boardType.rawValue.capitalized)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    filterCrsPill(filter)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(filter.stationName)
+                            .font(.headline)
+                        Text("\(filter.filterLabel) · \(filter.boardType.rawValue.capitalized)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if showStar {
+                        Image(systemName: "arrow.right.arrow.left")
+                            .foregroundStyle(Theme.brand)
+                            .font(.caption)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
                 }
-                Spacer()
-                if showStar {
-                    Image(systemName: "arrow.right.arrow.left")
-                        .foregroundStyle(Theme.brand)
-                        .font(.caption)
+                if showStar && showNextServiceOnFavourites {
+                    nextServicePill(id: filter.id, boardType: filter.boardType)
+                        .padding(.trailing, 20)
                 }
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
             }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .foregroundStyle(.primary)
         .contextMenu {

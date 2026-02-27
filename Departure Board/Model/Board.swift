@@ -7,6 +7,37 @@
 
 import Foundation
 
+struct BoardRequest: Encodable {
+    let crs: String
+    let type: String
+    let filterCrs: String?
+    let filterType: String?
+
+    enum CodingKeys: String, CodingKey {
+        case crs, type, filterCrs, filterType
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(crs, forKey: .crs)
+        try container.encode(type, forKey: .type)
+        try container.encodeIfPresent(filterCrs, forKey: .filterCrs)
+        try container.encodeIfPresent(filterType, forKey: .filterType)
+    }
+}
+
+struct BoardSummary: Codable {
+    let crs: String
+    let type: String
+    let filterCrs: String?
+    let filterType: String?
+    let generatedAt: String?
+    let locationName: String?
+    let nrccMessages: [String]?
+    let service: Service?
+    let error: String?
+}
+
 struct DepartureBoard: Codable {
     let generatedAt: String
     let locationName: String
