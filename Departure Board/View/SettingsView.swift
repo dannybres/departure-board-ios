@@ -15,8 +15,25 @@ struct SettingsView: View {
     @AppStorage("showRecentFilters") var showRecentFilters: Bool = true
     @AppStorage("mapsProvider") var mapsProvider: String = "apple"
     @AppStorage("showNextServiceOnFavourites") var showNextServiceOnFavourites: Bool = true
+    @AppStorage("autoLoadMode") var autoLoadMode: String = "nearest"
+    @AppStorage("autoLoadDistanceMiles") var autoLoadDistanceMiles: Int = 2
     @State private var isRefreshing = false
     @State private var lastRefresh: Date? = StationCache.lastRefreshDate()
+
+    private var autoLoadModeDescription: String {
+        switch autoLoadMode {
+        case "off":
+            return "The app opens on the station list. Nothing is loaded automatically."
+        case "nearest":
+            return "The nearest station's departure board is opened automatically."
+        case "favourite":
+            return "If a favourite board is within \(autoLoadDistanceMiles) mi, it opens automatically. Otherwise the station list is shown."
+        case "favouriteOrNearest":
+            return "Opens the nearest favourite within \(autoLoadDistanceMiles) mi. If none are close enough, falls back to the nearest station."
+        default:
+            return ""
+        }
+    }
 
     var body: some View {
         Form {
@@ -24,8 +41,34 @@ struct SettingsView: View {
                 Stepper("Show \(nearbyCount) stations", value: $nearbyCount, in: 1...25)
             }
 
-            Section("Favourites") {
+            Section {
                 Toggle("Show Next Service", isOn: $showNextServiceOnFavourites)
+            } header: {
+                Text("Favourites")
+            }
+
+            Section {
+                Picker("On Launch", selection: $autoLoadMode) {
+                    Text("Disabled").tag("off")
+                    Text("Nearest Station").tag("nearest")
+                    Text("Nearby Favourite").tag("favourite")
+                    Text("Favourite, then Nearest").tag("favouriteOrNearest")
+                }
+
+                if autoLoadMode == "favourite" || autoLoadMode == "favouriteOrNearest" {
+                    Stepper("Within \(autoLoadDistanceMiles) mi", value: $autoLoadDistanceMiles, in: 1...50)
+                }
+
+                Text(autoLoadModeDescription)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Auto-Load on Launch")
+            } footer: {
+                if autoLoadMode == "favourite" || autoLoadMode == "favouriteOrNearest" {
+                    Text("When multiple favourites are within range, the one highest in your favourites list is loaded — not the closest. Reorder your favourites to control which board opens first.")
+                        .font(.caption)
+                }
             }
 
             Section("Recent Filters") {

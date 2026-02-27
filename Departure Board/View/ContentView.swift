@@ -22,6 +22,12 @@ extension String: @retroactive Identifiable {
     public var id: String { self }
 }
 
+struct NextServiceSheetItem: Identifiable {
+    let service: Service
+    let boardType: BoardType
+    var id: String { service.serviceId }
+}
+
 private struct NextServicePillView: View {
     let service: Service
     let boardType: BoardType
@@ -109,7 +115,10 @@ struct ContentView: View {
     @AppStorage("showRecentFilters") private var showRecentFilters: Bool = true
     @AppStorage("mapsProvider") private var mapsProvider: String = "apple"
     @AppStorage("showNextServiceOnFavourites") private var showNextServiceOnFavourites: Bool = true
+    @AppStorage("autoLoadMode") private var autoLoadMode: String = "nearest"
+    @AppStorage("autoLoadDistanceMiles") private var autoLoadDistanceMiles: Int = 2
     @State private var nextServices: [String: BoardSummary] = [:]
+    @State private var nextServiceSheetItem: NextServiceSheetItem?
 
     // MARK: - Unified Favourites
 
@@ -330,6 +339,47 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Auto-Load
+
+    private func resolveAutoLoadDestination() -> StationDestination? {
+        switch autoLoadMode {
+        case "nearest":
+            guard let station = nearbyStations.first else { return nil }
+            return StationDestination(station: station, boardType: .departures)
+        case "favourite":
+            return nearestFavouriteDestination()
+        case "favouriteOrNearest":
+            if let fav = nearestFavouriteDestination() { return fav }
+            guard let station = nearbyStations.first else { return nil }
+            return StationDestination(station: station, boardType: .departures)
+        default:
+            return nil
+        }
+    }
+
+    /// Returns the highest-priority favourite (by list order) within the configured distance.
+    private func nearestFavouriteDestination() -> StationDestination? {
+        guard let userLocation = locationManager.userLocation else { return nil }
+        let thresholdMetres = Double(autoLoadDistanceMiles) * 1609.344
+
+        for item in favouriteDisplayItems {
+            switch item {
+            case .station(let station, let boardType):
+                let loc = CLLocation(latitude: station.latitude, longitude: station.longitude)
+                if userLocation.distance(from: loc) <= thresholdMetres {
+                    return StationDestination(station: station, boardType: boardType)
+                }
+            case .filter(let filter):
+                guard let station = viewModel.stations.first(where: { $0.crsCode == filter.stationCrs }) else { continue }
+                let loc = CLLocation(latitude: station.latitude, longitude: station.longitude)
+                if userLocation.distance(from: loc) <= thresholdMetres {
+                    return StationDestination(station: station, boardType: filter.boardType, filterStation: viewModel.stations.first(where: { $0.crsCode == filter.filterCrs }), filterType: filter.filterType)
+                }
+            }
+        }
+        return nil
+    }
+
     // MARK: - Recent Filters
 
     private var recentFilters: [SavedFilter] {
@@ -392,14 +442,6 @@ struct ContentView: View {
                             Image(systemName: "gearshape")
                         }
                     }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            nextServices = [:]
-                            Task { await fetchNextServices() }
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                    }
                 }
                 .sheet(isPresented: $showSettings) {
                     NavigationStack {
@@ -422,6 +464,23 @@ struct ContentView: View {
                         }
                     })
                 }
+                .sheet(item: $nextServiceSheetItem) { item in
+                    NavigationStack {
+                        let scheduled = item.boardType == .departures ? item.service.std : item.service.sta
+                        let location = item.boardType == .departures
+                            ? item.service.destination.first?.locationName
+                            : item.service.origin.first?.locationName
+                        ServiceDetailView(service: item.service, boardType: item.boardType, navigationPath: .constant(NavigationPath()))
+                            .navigationTitle([scheduled, location].compactMap { $0 }.joined(separator: " · "))
+                            .navigationBarTitleDisplayMode(.inline)
+                            .toolbar {
+                                ToolbarItem(placement: .topBarTrailing) {
+                                    Button("Done") { nextServiceSheetItem = nil }
+                                }
+                            }
+                    }
+                    .tint(Theme.brand)
+                }
                 .navigationDestination(for: Station.self) { station in
                     DepartureBoardView(station: station, navigationPath: $navigationPath)
                 }
@@ -435,17 +494,17 @@ struct ContentView: View {
                     }
                 }
                 .onChange(of: locationManager.userLocation) {
-                    guard let _ = locationManager.userLocation, !hasPushedNearbyStation else { return }
+                    guard locationManager.userLocation != nil, !hasPushedNearbyStation else { return }
                     guard deepLink == nil else { return }
+                    guard autoLoadMode != "off" else { return }
 
-                    if let firstNearby = nearbyStations.first {
-                        hasPushedNearbyStation = true
-                        Task {
-                            try? await Task.sleep(for: .milliseconds(600))
-                            navigationPath.append(
-                                StationDestination(station: firstNearby, boardType: .departures)
-                            )
-                        }
+                    let destination = resolveAutoLoadDestination()
+                    guard let destination else { return }
+
+                    hasPushedNearbyStation = true
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(600))
+                        navigationPath.append(destination)
                     }
                 }
                 .onChange(of: deepLink) {
@@ -715,6 +774,20 @@ struct ContentView: View {
 
     @ViewBuilder
     private func favouriteStationContextMenu(for station: Station, boardType: BoardType) -> some View {
+        let itemID = SharedDefaults.stationFavID(crs: station.crsCode, boardType: boardType)
+        if let svc = nextServices[itemID]?.service {
+            let scheduled = boardType == .departures ? svc.std : svc.sta
+            let location = boardType == .departures ? svc.destination.first?.locationName : svc.origin.first?.locationName
+            Section([scheduled, location].compactMap { $0 }.joined(separator: " · ")) {
+                Button {
+                    nextServiceSheetItem = NextServiceSheetItem(service: svc, boardType: boardType)
+                } label: {
+                    Label("View Service", systemImage: "train.side.front.car")
+                }
+            }
+            Divider()
+        }
+
         Button {
             navigationPath.append(StationDestination(station: station, boardType: .departures))
         } label: {
@@ -773,13 +846,26 @@ struct ContentView: View {
 
     @ViewBuilder
     private func filterContextMenu(for filter: SavedFilter) -> some View {
+        if let svc = nextServices[filter.id]?.service {
+            let scheduled = filter.boardType == .departures ? svc.std : svc.sta
+            let location = filter.boardType == .departures ? svc.destination.first?.locationName : svc.origin.first?.locationName
+            Section([scheduled, location].compactMap { $0 }.joined(separator: " · ")) {
+                Button {
+                    nextServiceSheetItem = NextServiceSheetItem(service: svc, boardType: filter.boardType)
+                } label: {
+                    Label("View Service", systemImage: "train.side.front.car")
+                }
+            }
+            Divider()
+        }
+
         Button {
             navigateToFilter(filter)
         } label: {
             Label("Show Board", systemImage: "line.3.horizontal.decrease.circle")
         }
 
-        Section(filter.stationName) {
+        Menu {
             Button {
                 if let station = viewModel.stations.first(where: { $0.crsCode == filter.stationCrs }) {
                     navigationPath.append(StationDestination(station: station, boardType: .departures))
@@ -799,9 +885,18 @@ struct ContentView: View {
             } label: {
                 Label("Station Info", systemImage: "info.circle")
             }
+            if let station = viewModel.stations.first(where: { $0.crsCode == filter.stationCrs }) {
+                Button {
+                    openInMaps(station)
+                } label: {
+                    Label("Open in Maps", systemImage: "map")
+                }
+            }
+        } label: {
+            Label(filter.stationName, systemImage: "building.2")
         }
 
-        Section(filter.filterName) {
+        Menu {
             Button {
                 if let station = viewModel.stations.first(where: { $0.crsCode == filter.filterCrs }) {
                     navigationPath.append(StationDestination(station: station, boardType: .departures))
@@ -821,6 +916,15 @@ struct ContentView: View {
             } label: {
                 Label("Station Info", systemImage: "info.circle")
             }
+            if let station = viewModel.stations.first(where: { $0.crsCode == filter.filterCrs }) {
+                Button {
+                    openInMaps(station)
+                } label: {
+                    Label("Open in Maps", systemImage: "map")
+                }
+            }
+        } label: {
+            Label(filter.filterName, systemImage: "building.2")
         }
 
         Divider()
