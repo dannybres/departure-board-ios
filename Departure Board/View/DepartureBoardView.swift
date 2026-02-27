@@ -266,9 +266,13 @@ struct DepartureBoardView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 12) {
                     if let updated = lastBoardUpdate {
-                        Text(ContentView.fuzzyLabel(from: updated, tick: tickDate))
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                        TimelineView(.periodic(from: .now, by: 10)) { context in
+                            Text(ContentView.fuzzyLabel(from: updated, tick: context.date))
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .fixedSize()
+                                .padding(.leading, 8)
+                        }
                         Divider()
                             .frame(height: 16)
                     }

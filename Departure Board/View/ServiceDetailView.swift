@@ -7,8 +7,6 @@
 
 import SwiftUI
 import MapKit
-import Combine
-
 // MARK: - Timeline Types
 
 enum TimelinePosition {
@@ -125,7 +123,6 @@ struct ServiceDetailView: View {
     @State private var showInfoSheet = false
     @State private var selectedMapPin: String?
     @State private var lastDetailUpdate: Date? = nil
-    @State private var tickDate = Date()
 
     var body: some View {
         Group {
@@ -161,9 +158,13 @@ struct ServiceDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 12) {
                     if let updated = lastDetailUpdate {
-                        Text(ContentView.fuzzyLabel(from: updated, tick: tickDate))
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                        TimelineView(.periodic(from: .now, by: 10)) { context in
+                            Text(ContentView.fuzzyLabel(from: updated, tick: context.date))
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .fixedSize()
+                                .padding(.leading, 8)
+                        }
                         Divider()
                             .frame(height: 16)
                     }
@@ -187,9 +188,6 @@ struct ServiceDetailView: View {
         }
         .refreshable {
             await loadDetail(showLoading: false)
-        }
-        .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
-            tickDate = Date()
         }
         .sheet(item: $stationInfoCrs) { crs in
             StationInfoView(crs: crs, onDismiss: {
