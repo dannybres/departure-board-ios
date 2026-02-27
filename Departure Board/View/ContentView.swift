@@ -492,8 +492,8 @@ struct ContentView: View {
                 navigationPath.append(StationDestination(station: station, boardType: .arrivals))
             case .station:
                 stationInfoCrs = station.crsCode
-            case .service(_, let serviceID):
-                navigationPath.append(StationDestination(station: station, boardType: .departures, pendingServiceID: serviceID))
+            case .service(_, let serviceId):
+                navigationPath.append(StationDestination(station: station, boardType: .departures, pendingServiceID: serviceId))
             }
         }
     }

@@ -11,7 +11,7 @@ enum DeepLink: Equatable {
     case departures(crs: String)
     case arrivals(crs: String)
     case station(crs: String)
-    case service(crs: String, serviceID: String)
+    case service(crs: String, serviceId: String)
 
     init?(url: URL) {
         guard url.scheme == "departure" else { return nil }
@@ -29,9 +29,9 @@ enum DeepLink: Equatable {
             self = .station(crs: first.uppercased())
         case "service":
             let crs = first.uppercased()
-            let serviceID = pathParts.dropFirst().first ?? ""
-            guard !serviceID.isEmpty else { return nil }
-            self = .service(crs: crs, serviceID: serviceID)
+            let serviceId = pathParts.dropFirst().first ?? ""
+            guard !serviceId.isEmpty else { return nil }
+            self = .service(crs: crs, serviceId: serviceId)
         default:
             return nil
         }

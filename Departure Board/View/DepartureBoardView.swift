@@ -103,7 +103,7 @@ struct DepartureBoardView: View {
                                 serviceContextMenu(service)
                             }
                             .listRowBackground(
-                                selectedServiceID == service.serviceID
+                                selectedServiceID == service.serviceId
                                     ? Theme.brandSubtle : nil
                             )
                         }
@@ -130,7 +130,7 @@ struct DepartureBoardView: View {
                                 serviceContextMenu(service)
                             }
                             .listRowBackground(
-                                selectedServiceID == service.serviceID
+                                selectedServiceID == service.serviceId
                                     ? Theme.brandSubtle : nil
                             )
                         }
@@ -327,7 +327,7 @@ struct DepartureBoardView: View {
                 navigationPath: $navigationPath
             )
             .onAppear {
-                selectedServiceID = service.serviceID
+                selectedServiceID = service.serviceId
             }
             .onDisappear {
                 withAnimation(.easeOut(duration: 0.6)) {
@@ -346,8 +346,8 @@ struct DepartureBoardView: View {
         .task {
             await loadBoard(type: selectedBoard, showLoading: true)
             if let pendingServiceID, !didAutoNavigate,
-               let service = (board?.trainServices ?? []).first(where: { $0.serviceID == pendingServiceID })
-                    ?? (board?.busServices ?? []).first(where: { $0.serviceID == pendingServiceID }) {
+               let service = (board?.trainServices ?? []).first(where: { $0.serviceId == pendingServiceID })
+                    ?? (board?.busServices ?? []).first(where: { $0.serviceId == pendingServiceID }) {
                 didAutoNavigate = true
                 navigationPath.append(service)
             }

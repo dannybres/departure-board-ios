@@ -164,7 +164,7 @@ struct StationInfoView: View {
             // Alerts
             if let alertText = info.stationAlerts?.alertText, !alertText.isEmpty {
                 Section {
-                    Text(richText(alertText))
+                    richText(alertText)
                         .font(.subheadline)
                         .foregroundStyle(.red)
                         .copyable(stripHTML(alertText))
@@ -299,7 +299,7 @@ struct StationInfoView: View {
                     if hasNote || hasHours {
                         DisclosureGroup {
                             if let note = lounge.annotation?.note {
-                                Text(richText(note))
+                                richText(note)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -332,7 +332,7 @@ struct StationInfoView: View {
                 if let coverage = info.impairedAccess?.stepFreeAccess?.coverage {
                     if let note = info.impairedAccess?.stepFreeAccess?.annotation?.note {
                         DisclosureGroup {
-                            Text(richText(note))
+                            richText(note)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } label: {
@@ -348,7 +348,7 @@ struct StationInfoView: View {
                 if let gate = info.impairedAccess?.ticketGate {
                     if let comments = info.impairedAccess?.ticketGateComments?.note {
                         DisclosureGroup {
-                            Text(richText(comments))
+                            richText(comments)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } label: {
@@ -383,7 +383,7 @@ struct StationInfoView: View {
                     if hasNote || hasHours {
                         DisclosureGroup {
                             if let note = staff.annotation?.note {
-                                Text(richText(note))
+                                richText(note)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -410,7 +410,7 @@ struct StationInfoView: View {
                     if hasNote || hasPhone || hasUrl {
                         DisclosureGroup {
                             if let note = helpline.annotation?.note {
-                                Text(richText(note))
+                                richText(note)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -423,7 +423,7 @@ struct StationInfoView: View {
                                 .copyable(phone)
                             }
                             if let contactNote = helpline.contactDetails?.annotation?.note {
-                                Text(richText(contactNote))
+                                richText(contactNote)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .copyable(stripHTML(contactNote))
@@ -476,12 +476,12 @@ struct StationInfoView: View {
                     if hasExtra {
                         DisclosureGroup {
                             if let location = info.interchange?.cycleStorageLocation {
-                                Text(richText(location))
+                                richText(location)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
                             if let note = info.interchange?.cycleStorageNote?.note {
-                                Text(richText(note))
+                                richText(note)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -647,7 +647,7 @@ struct StationInfoView: View {
                 }
 
                 if let penalty = info.fares?.penaltyFares?.note {
-                    Text(richText(penalty))
+                    richText(penalty)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .copyable(stripHTML(penalty))
@@ -777,40 +777,36 @@ struct StationInfoView: View {
         }
     }
 
-    private func stripHTML(_ html: String) -> String {
-        return String(richText(html).characters)
+    private func processToMarkdown(_ input: String) -> String {
+        var text = input
+        // Fallback: convert HTML if any tags or encoded entities are present
+        if text.range(of: "<[a-zA-Z]", options: .regularExpression) != nil || text.contains("&lt;") {
+            text = text.replacingOccurrences(of: "&lt;", with: "<")
+            text = text.replacingOccurrences(of: "&gt;", with: ">")
+            text = text.replacingOccurrences(of: "&amp;", with: "&")
+            text = text.replacingOccurrences(of: "&quot;", with: "\"")
+            text = text.replacingOccurrences(of: "<strong[^>]*>", with: "**", options: .regularExpression)
+            text = text.replacingOccurrences(of: "</strong>", with: "**", options: .caseInsensitive)
+            text = text.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
+            text = text.replacingOccurrences(of: "</p>", with: "\n\n", options: .caseInsensitive)
+            text = text.replacingOccurrences(of: "</h[1-6]>", with: "\n", options: .regularExpression)
+            text = text.replacingOccurrences(of: "</li>", with: "\n", options: .caseInsensitive)
+            text = text.replacingOccurrences(of: "<li[^>]*>", with: "• ", options: .regularExpression)
+            text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            text = text.replacingOccurrences(of: #"\s+\*\*"#, with: "**", options: .regularExpression)
+            text = text.replacingOccurrences(of: #"\*\*\*([^\*])"#, with: "**$1", options: .regularExpression)
+        }
+        text = text.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func richText(_ html: String) -> AttributedString {
-        var text = html
-        // Decode HTML entities first
-        text = text.replacingOccurrences(of: "&lt;", with: "<")
-        text = text.replacingOccurrences(of: "&gt;", with: ">")
-        text = text.replacingOccurrences(of: "&amp;", with: "&")
-        text = text.replacingOccurrences(of: "&quot;", with: "\"")
-        // Convert <strong> to markdown bold
-        text = text.replacingOccurrences(of: "<strong[^>]*>", with: "**", options: .regularExpression)
-        text = text.replacingOccurrences(of: "</strong>", with: "**", options: .caseInsensitive)
-        // Block-level elements to newlines
-        text = text.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
-        text = text.replacingOccurrences(of: "</p>", with: "\n\n", options: .caseInsensitive)
-        text = text.replacingOccurrences(of: "</h[1-6]>", with: "\n", options: .regularExpression)
-        text = text.replacingOccurrences(of: "</li>", with: "\n", options: .caseInsensitive)
-        text = text.replacingOccurrences(of: "<li[^>]*>", with: "• ", options: .regularExpression)
-        // Strip remaining tags
-        text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-        // Fix trailing whitespace inside bold markers: "**word **" → "**word**"
-        text = text.replacingOccurrences(of: #"\s+\*\*"#, with: "**", options: .regularExpression)
-        // Fix literal * adjacent to bold marker: "***word" → "**word" (stray asterisk from source content)
-        text = text.replacingOccurrences(of: #"\*\*\*([^\*])"#, with: "**$1", options: .regularExpression)
-        // Collapse multiple blank lines
-        text = text.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Parse as markdown to get bold styling
-        if let attributed = try? AttributedString(markdown: trimmed, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
-            return attributed
-        }
-        return AttributedString(trimmed)
+    private func stripHTML(_ input: String) -> String {
+        let md = processToMarkdown(input)
+        return md.replacingOccurrences(of: "**", with: "")
+    }
+
+    private func richText(_ input: String) -> Text {
+        Text(LocalizedStringKey(processToMarkdown(input)))
     }
 
     private func extractPhoneNumber(_ html: String?) -> String? {

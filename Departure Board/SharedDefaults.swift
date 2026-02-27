@@ -83,6 +83,11 @@ struct SavedFilter: Codable, Identifiable, Equatable, Hashable {
     }
 }
 
+enum APIConfig {
+    static let baseURL = "https://railtest.breslan.co.uk/api/v1"
+//    static let baseURL = "https://rail.breslan.co.uk/api/v1"
+}
+
 enum SharedDefaults {
     static let suiteName = "group.com.breslan.Departure-Board"
     static let shared = UserDefaults(suiteName: suiteName)!

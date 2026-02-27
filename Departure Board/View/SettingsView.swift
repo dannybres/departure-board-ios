@@ -77,6 +77,17 @@ struct SettingsView: View {
                 }
                 .disabled(isRefreshing)
             }
+            Section("Debug") {
+                HStack {
+                    Text("API")
+                    Spacer()
+                    Text(APIConfig.baseURL)
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
+                }
+            }
         }
         .navigationTitle("Settings")
     }

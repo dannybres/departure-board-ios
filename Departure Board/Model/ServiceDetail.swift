@@ -34,6 +34,7 @@ struct ServiceDetail: Codable {
     var coaches: [ServiceCoach] {
         formation?.coaches?.coach ?? []
     }
+    
 }
 
 // MARK: - Formation (old nested format from service endpoint)

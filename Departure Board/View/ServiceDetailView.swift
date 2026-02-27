@@ -770,7 +770,7 @@ struct ServiceDetailView: View {
     private func loadDetail(showLoading: Bool = false) async {
         if showLoading { isLoading = true }
         do {
-            let result = try await StationViewModel.fetchServiceDetail(serviceID: service.serviceID)
+            let result = try await StationViewModel.fetchServiceDetail(serviceId: service.serviceId)
             detail = result
             errorMessage = nil
         } catch {

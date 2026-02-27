@@ -261,7 +261,25 @@ private func fetchEntry(boards: [BoardConfig], servicesPerStation: Int) async ->
         }()
         do {
             let result = try await fetchBoard(crs: board.crs, boardType: board.boardType, numRows: servicesPerStation, filterCrs: board.filterCrs, filterType: board.filterType)
-            let allServices = (result.trainServices ?? []) + (result.busServices ?? [])
+            let combined = (result.trainServices ?? []) + (result.busServices ?? [])
+            let allServices = combined.enumerated().sorted { lhs, rhs in
+                // Sort HH:mm strings with overnight wraparound:
+                // times before 06:00 are treated as next-day (add 24h) so they
+                // sort after late-night services like 23:xx.
+                // Non-time values (e.g. "Delayed") keep their original position.
+                func sortKey(_ t: String) -> Int? {
+                    let parts = t.split(separator: ":").compactMap { Int($0) }
+                    guard parts.count == 2 else { return nil }
+                    let mins = parts[0] * 60 + parts[1]
+                    return mins < 360 ? mins + 1440 : mins
+                }
+                let ak = sortKey(lhs.element.scheduled)
+                let bk = sortKey(rhs.element.scheduled)
+                switch (ak, bk) {
+                case let (a?, b?): return a < b
+                default: return lhs.offset < rhs.offset
+                }
+            }.map(\.element)
             let services = allServices.prefix(servicesPerStation).map { service in
                 let dest = service.destination.map(\.locationName).joined(separator: " & ")
                 let status = service.estimated
@@ -269,7 +287,7 @@ private func fetchEntry(boards: [BoardConfig], servicesPerStation: Int) async ->
                 let isDelayed = !isCancelled && (status.lowercased().contains("delayed") ||
                     (isTimeFormat(status) && status > service.scheduled))
                 return DepartureEntry.WidgetService(
-                    id: service.serviceID,
+                    id: service.serviceId,
                     scheduled: service.scheduled,
                     destination: dest,
                     platform: service.platform,

@@ -31,7 +31,7 @@ struct Service: Codable, Identifiable, Hashable {
     let `operator`: String
     let operatorCode: String
     let serviceType: String
-    let serviceID: String
+    let serviceId: String
     let rsid: String?
     let length: Int?
     let isCancelled: Bool
@@ -46,7 +46,7 @@ struct Service: Codable, Identifiable, Hashable {
 
     let coaches: [Coach]?
 
-    var id: String { serviceID }
+    var id: String { serviceId }
 
     var scheduled: String { sta ?? std ?? "missing" }
     var estimated: String { eta ?? etd ?? "missing" }

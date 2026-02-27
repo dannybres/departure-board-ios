@@ -41,7 +41,7 @@ class StationViewModel: ObservableObject {
     }
     
     private func fetchStationsInBackground() async {
-        guard let url = URL(string: "https://rail.breslan.co.uk/api/stations") else { return }
+        guard let url = URL(string: "\(APIConfig.baseURL)/stations") else { return }
         
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
@@ -60,7 +60,7 @@ class StationViewModel: ObservableObject {
     }
 
     static func fetchStationInfo(crs: String) async throws -> StationInfo {
-        guard let url = URL(string: "https://rail.breslan.co.uk/api/station/\(crs)") else {
+        guard let url = URL(string: "\(APIConfig.baseURL)/station/\(crs)") else {
             throw URLError(.badURL)
         }
 
@@ -74,8 +74,8 @@ class StationViewModel: ObservableObject {
         return try JSONDecoder().decode(StationInfo.self, from: data)
     }
 
-    static func fetchServiceDetail(serviceID: String) async throws -> ServiceDetail {
-        guard let url = URL(string: "https://rail.breslan.co.uk/api/service/\(serviceID)") else {
+    static func fetchServiceDetail(serviceId: String) async throws -> ServiceDetail {
+        guard let url = URL(string: "\(APIConfig.baseURL)/service/\(serviceId)") else {
             throw URLError(.badURL)
         }
 
@@ -98,7 +98,7 @@ class StationViewModel: ObservableObject {
         timeOffset: Int? = nil,
         timeWindow: Int? = nil
     ) async throws -> DepartureBoard {
-        var components = URLComponents(string: "https://rail.breslan.co.uk/api/\(type.rawValue)/\(crs)")!
+        var components = URLComponents(string: "\(APIConfig.baseURL)/\(type.rawValue)/\(crs)")!
         var queryItems: [URLQueryItem] = []
         if let numRows { queryItems.append(URLQueryItem(name: "numRows", value: String(numRows))) }
         if let filterCrs { queryItems.append(URLQueryItem(name: "filterCrs", value: filterCrs)) }
