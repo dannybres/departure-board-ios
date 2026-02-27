@@ -353,12 +353,22 @@ struct ContentView: View {
     static func fuzzyLabel(from updated: Date, tick: Date) -> String {
         let seconds = Int(tick.timeIntervalSince(updated))
         switch seconds {
-        case ..<10:   return "Updated just now"
-        case 10..<55: return "Updated about \((seconds / 10) * 10)s ago"
-        case 55..<90: return "Updated about a minute ago"
+        case ..<8:    return "Updated just now"
+        case 8..<12:  return "Updated about 10s ago"
+        case 12..<17: return "Updated about 15s ago"
+        case 17..<22: return "Updated about 20s ago"
+        case 22..<27: return "Updated about 25s ago"
+        case 27..<32: return "Updated about 30s ago"
+        case 32..<37: return "Updated about 35s ago"
+        case 37..<42: return "Updated about 40s ago"
+        case 42..<47: return "Updated about 45s ago"
+        case 47..<52: return "Updated about 50s ago"
+        case 52..<72: return "Updated about a minute ago"
+        case 72..<92: return "Updated about a minute 20s ago"
+        case 92..<112: return "Updated about a minute 40s ago"
         default:
-            let mins = seconds / 60
-            return "Updated about \(mins) minute\(mins == 1 ? "" : "s") ago"
+            let mins = (seconds + 50) / 60
+            return "Updated about \(mins) minutes ago"
         }
     }
 

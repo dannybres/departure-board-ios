@@ -158,19 +158,21 @@ struct ServiceDetailView: View {
         }
         .navigationTitle(navigationTitleText)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                if let updated = lastDetailUpdate {
-                    Text(ContentView.fuzzyLabel(from: updated, tick: tickDate))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-            }
             ToolbarItem(placement: .topBarTrailing) {
-                if detail != nil {
-                    Button {
-                        showInfoSheet = true
-                    } label: {
-                        Image(systemName: "info.circle")
+                HStack(spacing: 12) {
+                    if let updated = lastDetailUpdate {
+                        Text(ContentView.fuzzyLabel(from: updated, tick: tickDate))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        Divider()
+                            .frame(height: 16)
+                    }
+                    if detail != nil {
+                        Button {
+                            showInfoSheet = true
+                        } label: {
+                            Image(systemName: "info.circle")
+                        }
                     }
                 }
             }

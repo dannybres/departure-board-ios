@@ -263,15 +263,15 @@ struct DepartureBoardView: View {
             tickDate = Date()
         }
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                if let updated = lastBoardUpdate {
-                    Text(ContentView.fuzzyLabel(from: updated, tick: tickDate))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-            }
             ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: 16) {
+                HStack(spacing: 12) {
+                    if let updated = lastBoardUpdate {
+                        Text(ContentView.fuzzyLabel(from: updated, tick: tickDate))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        Divider()
+                            .frame(height: 16)
+                    }
                     Button {
                         toggleBoardFavourite()
                     } label: {
