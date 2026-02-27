@@ -142,6 +142,8 @@ struct DepartureEntry: TimelineEntry {
         let name: String
         let crs: String
         let filterLabel: String?
+        let filterCrs: String?
+        let filterType: String?
         let services: [WidgetService]
     }
 
@@ -273,8 +275,11 @@ private func fetchEntry(boards: [BoardConfig], servicesPerStation: Int) async ->
                     let mins = parts[0] * 60 + parts[1]
                     return mins < 360 ? mins + 1440 : mins
                 }
-                let ak = sortKey(lhs.element.scheduled)
-                let bk = sortKey(rhs.element.scheduled)
+                let isDep = board.boardType != .arrivals
+                let aTime = isDep ? (lhs.element.std ?? lhs.element.sta) : (lhs.element.sta ?? lhs.element.std)
+                let bTime = isDep ? (rhs.element.std ?? rhs.element.sta) : (rhs.element.sta ?? rhs.element.std)
+                let ak = sortKey(aTime ?? "")
+                let bk = sortKey(bTime ?? "")
                 switch (ak, bk) {
                 case let (a?, b?): return a < b
                 default: return lhs.offset < rhs.offset
@@ -284,11 +289,15 @@ private func fetchEntry(boards: [BoardConfig], servicesPerStation: Int) async ->
                 let dest = service.destination.map(\.locationName).joined(separator: " & ")
                 let status = service.estimated
                 let isCancelled = service.isCancelled
+                // Use departure time for departures boards, arrival time for arrivals boards
+                let scheduledTime = board.boardType == .arrivals
+                    ? (service.sta ?? service.std ?? "missing")
+                    : (service.std ?? service.sta ?? "missing")
                 let isDelayed = !isCancelled && (status.lowercased().contains("delayed") ||
-                    (isTimeFormat(status) && status > service.scheduled))
+                    (isTimeFormat(status) && status > scheduledTime))
                 return DepartureEntry.WidgetService(
                     id: service.serviceId,
-                    scheduled: service.scheduled,
+                    scheduled: scheduledTime,
                     destination: dest,
                     platform: service.platform,
                     status: status,
@@ -297,9 +306,9 @@ private func fetchEntry(boards: [BoardConfig], servicesPerStation: Int) async ->
                     isBus: service.serviceType == "bus"
                 )
             }
-            stationDepartures.append(.init(name: name, crs: board.crs, filterLabel: filterLabel, services: Array(services)))
+            stationDepartures.append(.init(name: name, crs: board.crs, filterLabel: filterLabel, filterCrs: board.filterCrs, filterType: board.filterType, services: Array(services)))
         } catch {
-            stationDepartures.append(.init(name: name, crs: board.crs, filterLabel: filterLabel, services: []))
+            stationDepartures.append(.init(name: name, crs: board.crs, filterLabel: filterLabel, filterCrs: board.filterCrs, filterType: board.filterType, services: []))
         }
     }
 
@@ -364,6 +373,8 @@ extension DepartureEntry {
                 name: ["London Waterloo", "Clapham Junction"][i % 2],
                 crs: ["WAT", "CLJ"][i % 2],
                 filterLabel: nil,
+                filterCrs: nil,
+                filterType: nil,
                 services: mockServices
             )
         }
@@ -449,14 +460,31 @@ struct StationBlock: View {
         let services = maxRows.map { Array(station.services.prefix($0)) } ?? station.services
         VStack(alignment: .leading, spacing: style == .full ? 4 : 2) {
             Link(destination: URL(string: "departure://departures/\(station.crs)")!) {
-                VStack(alignment: .leading, spacing: 0) {
+                let arrow = station.filterType == "from" ? "←" : "→"
+                let filterText: String? = {
+                    guard let crs = station.filterCrs else { return nil }
+                    if style == .minimal {
+                        return "\(arrow) \(crs)"
+                    }
+                    // Derive "→ Station Name" from filterLabel ("Calling at Station Name" / "From Station Name")
+                    if let label = station.filterLabel {
+                        if label.hasPrefix("Calling at ") {
+                            return "→ \(label.dropFirst("Calling at ".count))"
+                        } else if label.hasPrefix("From ") {
+                            return "← \(label.dropFirst("From ".count))"
+                        }
+                    }
+                    return "\(arrow) \(crs)"
+                }()
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(station.name)
                         .font(.caption.weight(.bold))
                         .foregroundStyle(Theme.brand)
                         .lineLimit(1)
-                    if let filterLabel = station.filterLabel {
-                        Text(filterLabel)
-                            .font(.system(size: 9))
+                        .fixedSize()
+                    if let filterText {
+                        Text(filterText)
+                            .font(.system(size: 9).weight(.medium))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -536,13 +564,13 @@ struct WidgetDepartureRow: View {
                 Text(platform)
                     .font(.system(.caption2, design: .monospaced).bold())
                     .foregroundStyle(colorScheme == .dark ? .black : .white)
+                    .fixedSize()
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
                     .background(
                         colorScheme == .dark ? Theme.platformBadgeDark : Theme.platformBadge,
                         in: RoundedRectangle(cornerRadius: 3)
                     )
-                    .frame(minWidth: 32, alignment: .trailing)
             }
         }
     }
