@@ -10,82 +10,20 @@ enum BoardType: String, CaseIterable, Codable {
     case arrivals
 }
 
-struct SavedFilter: Codable, Identifiable, Equatable, Hashable {
-    let stationCrs: String
-    let stationName: String
-    let filterCrs: String
-    let filterName: String
-    let filterType: String
-    var boardType: BoardType = .departures
-    var isFavourite: Bool = false
+// Decoded representation of a board ID string.
+struct ParsedBoardID: Identifiable {
+    var id: String { SharedDefaults.boardID(crs: crs, boardType: boardType, filterCrs: filterCrs, filterType: filterType) }
+    let crs: String
+    let boardType: BoardType
+    let filterCrs: String?
+    let filterType: String? // "to" or "from"
 
-    var id: String { "\(stationCrs)-\(boardType.rawValue)-\(filterType)-\(filterCrs)" }
-
-    enum CodingKeys: String, CodingKey {
-        case stationCrs, stationName, filterCrs, filterName, filterType, boardType, isFavourite
-    }
-
-    init(stationCrs: String, stationName: String, filterCrs: String, filterName: String, filterType: String, boardType: BoardType = .departures, isFavourite: Bool = false) {
-        self.stationCrs = stationCrs
-        self.stationName = stationName
-        self.filterCrs = filterCrs
-        self.filterName = filterName
-        self.filterType = filterType
-        self.boardType = boardType
-        self.isFavourite = isFavourite
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        stationCrs = try container.decode(String.self, forKey: .stationCrs)
-        stationName = try container.decode(String.self, forKey: .stationName)
-        filterCrs = try container.decode(String.self, forKey: .filterCrs)
-        filterName = try container.decode(String.self, forKey: .filterName)
-        filterType = try container.decode(String.self, forKey: .filterType)
-        boardType = (try? container.decode(BoardType.self, forKey: .boardType)) ?? .departures
-        isFavourite = (try? container.decode(Bool.self, forKey: .isFavourite)) ?? false
-    }
-
-    var filterLabel: String {
-        filterType == "to" ? "Calling at \(filterName)" : "From \(filterName)"
-    }
-
-    static func load() -> [SavedFilter] {
-        guard let data = SharedDefaults.shared.data(forKey: SharedDefaults.Keys.savedFilters) else { return [] }
-        return (try? JSONDecoder().decode([SavedFilter].self, from: data)) ?? []
-    }
-
-    static func save(_ filters: [SavedFilter]) {
-        if let data = try? JSONEncoder().encode(filters) {
-            SharedDefaults.shared.set(data, forKey: SharedDefaults.Keys.savedFilters)
-        }
-    }
-
-    static func addRecent(stationCrs: String, stationName: String, filterCrs: String, filterName: String, filterType: String, boardType: BoardType) {
-        var all = load()
-        let newFilter = SavedFilter(stationCrs: stationCrs, stationName: stationName, filterCrs: filterCrs, filterName: filterName, filterType: filterType, boardType: boardType)
-
-        // Don't duplicate — if it exists as recent, just move to front
-        if let idx = all.firstIndex(where: { $0.id == newFilter.id }) {
-            if all[idx].isFavourite { return }
-            all.remove(at: idx)
-        }
-
-        // Insert at start of recents (after favourites)
-        let firstRecentIdx = all.firstIndex(where: { !$0.isFavourite }) ?? all.count
-        all.insert(newFilter, at: firstRecentIdx)
-
-        // Trim recents to configured limit
-        let recentLimit = UserDefaults.standard.object(forKey: "recentFilterCount") as? Int ?? 3
-        let favourites = all.filter { $0.isFavourite }
-        let recents = all.filter { !$0.isFavourite }.prefix(recentLimit)
-        save(favourites + recents)
-    }
+    var isFiltered: Bool { filterCrs != nil }
 }
 
 enum APIConfig {
-    static let baseURL = "https://railtest.breslan.co.uk/api/v1"
-//    static let baseURL = "https://rail.breslan.co.uk/api/v1"
+//    static let baseURL = "https://railtest.breslan.co.uk/api/v1"
+    static let baseURL = "https://rail.breslan.co.uk/api/v1"
 }
 
 enum SharedDefaults {
@@ -93,13 +31,101 @@ enum SharedDefaults {
     static let shared = UserDefaults(suiteName: suiteName)!
 
     enum Keys {
-        static let favouriteStations = "favouriteStations"
-        static let favouriteItems = "favouriteItems"
-        static let cachedStations = "cachedStations"
+        static let favouriteStations = "favouriteStations"  // widget-compat, synced from favouriteBoards
+        static let favouriteBoards   = "favouriteBoards"    // [String] unified new format
+        static let recentFilters     = "recentFilters"      // [String] recent filter board IDs
+        static let cachedStations    = "cachedStations"
         static let stationsLastRefresh = "stationsLastRefresh"
         static let didMigrateToSharedSuite = "didMigrateToSharedSuite"
-        static let savedFilters = "savedFilters"
     }
+
+    // MARK: - ID encoding / decoding
+
+    /// Encodes a board into its compact string ID.
+    /// Plain:    "BEB-dep", "PLY-arr"
+    /// Filtered: "EUS-dep-to-LIV", "BEB-dep-from-CTR"
+    static func boardID(crs: String, boardType: BoardType, filterCrs: String? = nil, filterType: String? = nil) -> String {
+        let bt = boardType == .departures ? "dep" : "arr"
+        if let fc = filterCrs, let ft = filterType {
+            return "\(crs)-\(bt)-\(ft)-\(fc)"
+        }
+        return "\(crs)-\(bt)"
+    }
+
+    /// Decodes a board ID string back into its components.
+    static func parseBoardID(_ id: String) -> ParsedBoardID? {
+        let parts = id.split(separator: "-").map(String.init)
+        guard parts.count >= 2 else { return nil }
+        let crs = parts[0]
+        let bt: BoardType
+        switch parts[1] {
+        case "dep": bt = .departures
+        case "arr": bt = .arrivals
+        default: return nil
+        }
+        if parts.count == 4, parts[2] == "to" || parts[2] == "from" {
+            return ParsedBoardID(crs: crs, boardType: bt, filterCrs: parts[3], filterType: parts[2])
+        }
+        guard parts.count == 2 else { return nil }
+        return ParsedBoardID(crs: crs, boardType: bt, filterCrs: nil, filterType: nil)
+    }
+
+    // MARK: - Favourites
+
+    static func loadFavouriteBoards() -> [String] {
+        guard let data = shared.data(forKey: Keys.favouriteBoards) else { return [] }
+        return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+    }
+
+    static func saveFavouriteBoards(_ boards: [String]) {
+        if let data = try? JSONEncoder().encode(boards) {
+            shared.set(data, forKey: Keys.favouriteBoards)
+        }
+    }
+
+    // MARK: - Recent Filters
+
+    static func loadRecentFilters() -> [String] {
+        guard let data = shared.data(forKey: Keys.recentFilters) else { return [] }
+        return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+    }
+
+    static func addRecentFilter(id: String) {
+        var recents = loadRecentFilters()
+        recents.removeAll { $0 == id }
+        recents.insert(id, at: 0)
+        let limit = UserDefaults.standard.object(forKey: "recentFilterCount") as? Int ?? 3
+        recents = Array(recents.prefix(limit))
+        if let data = try? JSONEncoder().encode(recents) {
+            shared.set(data, forKey: Keys.recentFilters)
+        }
+    }
+
+    static func removeRecentFilter(id: String) {
+        var recents = loadRecentFilters()
+        recents.removeAll { $0 == id }
+        if let data = try? JSONEncoder().encode(recents) {
+            shared.set(data, forKey: Keys.recentFilters)
+        }
+    }
+
+    // MARK: - Widget sync
+
+    /// Keeps the legacy favouriteStations key (bare CRS array) in sync so the widget can still read it.
+    static func syncStationFavourites(from boards: [String], allStationCodes: Set<String>) {
+        let stationOnly = boards.compactMap { id -> String? in
+            guard let parsed = parseBoardID(id), !parsed.isFiltered,
+                  allStationCodes.contains(parsed.crs) else { return nil }
+            return parsed.crs
+        }
+        var seen = Set<String>()
+        let unique = stationOnly.filter { seen.insert($0).inserted }
+        if let data = try? JSONEncoder().encode(unique) {
+            shared.set(data, forKey: Keys.favouriteStations)
+        }
+    }
+
+    // MARK: - Migration (shared suite)
 
     static func migrateIfNeeded() {
         guard !shared.bool(forKey: Keys.didMigrateToSharedSuite) else { return }
@@ -108,63 +134,14 @@ enum SharedDefaults {
         if let data = old.data(forKey: Keys.favouriteStations), shared.data(forKey: Keys.favouriteStations) == nil {
             shared.set(data, forKey: Keys.favouriteStations)
         }
-
         if let data = old.data(forKey: Keys.cachedStations), shared.data(forKey: Keys.cachedStations) == nil {
             shared.set(data, forKey: Keys.cachedStations)
         }
-        if let date = old.object(forKey: Keys.stationsLastRefresh) as? Date, shared.object(forKey: Keys.stationsLastRefresh) == nil {
+        if let date = old.object(forKey: Keys.stationsLastRefresh) as? Date,
+           shared.object(forKey: Keys.stationsLastRefresh) == nil {
             shared.set(date, forKey: Keys.stationsLastRefresh)
         }
 
         shared.set(true, forKey: Keys.didMigrateToSharedSuite)
-    }
-
-    /// Migrate legacy favourite items (bare CRS codes) to board-type-aware format
-    static func migrateFavouriteItemsIfNeeded() {
-        guard let data = shared.data(forKey: Keys.favouriteItems),
-              let items = try? JSONDecoder().decode([String].self, from: data),
-              !items.isEmpty else { return }
-
-        // If any item is a bare CRS (no hyphen), migrate all bare ones to departures
-        let needsMigration = items.contains { !$0.contains("-") }
-        guard needsMigration else { return }
-
-        let migrated = items.map { item in
-            item.contains("-") ? item : "\(item)-departures"
-        }
-        if let newData = try? JSONEncoder().encode(migrated) {
-            shared.set(newData, forKey: Keys.favouriteItems)
-        }
-    }
-
-    /// Sync the widget-compatible favouriteStations key from favouriteItems
-    static func syncStationFavourites(from items: [String], allStationCodes: Set<String>) {
-        // Extract CRS codes from board-type-aware IDs like "WAT-departures"
-        let stationOnly = items.compactMap { item -> String? in
-            let parts = item.split(separator: "-")
-            guard parts.count == 2,
-                  let crs = parts.first.map(String.init),
-                  allStationCodes.contains(crs) else { return nil }
-            return crs
-        }
-        // Deduplicate while preserving order
-        var seen = Set<String>()
-        let unique = stationOnly.filter { seen.insert($0).inserted }
-        if let data = try? JSONEncoder().encode(unique) {
-            shared.set(data, forKey: Keys.favouriteStations)
-        }
-    }
-
-    /// Helper to build a station favourite ID
-    static func stationFavID(crs: String, boardType: BoardType) -> String {
-        "\(crs)-\(boardType.rawValue)"
-    }
-
-    /// Parse a favourite item ID to extract CRS and board type (for station items only)
-    static func parseStationFavID(_ id: String) -> (crs: String, boardType: BoardType)? {
-        let parts = id.split(separator: "-")
-        guard parts.count == 2,
-              let boardType = BoardType(rawValue: String(parts[1])) else { return nil }
-        return (String(parts[0]), boardType)
     }
 }

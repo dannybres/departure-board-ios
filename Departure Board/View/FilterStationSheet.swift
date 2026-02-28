@@ -13,25 +13,16 @@ struct FilterStationSheet: View {
 
     @State private var searchText = ""
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.stationNamesSmallCaps) private var stationNamesSmallCaps
 
     private var allStations: [Station] {
         StationCache.load() ?? []
     }
 
-    private var favouriteCodes: [String] {
-        guard let data = SharedDefaults.shared.data(forKey: SharedDefaults.Keys.favouriteItems) else {
-            guard let data = SharedDefaults.shared.data(forKey: SharedDefaults.Keys.favouriteStations) else { return [] }
-            return (try? JSONDecoder().decode([String].self, from: data)) ?? []
-        }
-        return (try? JSONDecoder().decode([String].self, from: data)) ?? []
-    }
-
     private var favouriteStations: [Station] {
-        let codes = favouriteCodes
-        let stations = allStations
-        return codes.compactMap { code in
-            stations.first { $0.crsCode == code }
-        }.filter { $0.crsCode != currentStationCrs }
+        let boards = SharedDefaults.loadFavouriteBoards()
+        let crsCodes = Set(boards.compactMap { SharedDefaults.parseBoardID($0)?.crs })
+        return allStations.filter { crsCodes.contains($0.crsCode) && $0.crsCode != currentStationCrs }
     }
 
     private var searchedFavourites: [Station] {
@@ -43,7 +34,7 @@ struct FilterStationSheet: View {
     }
 
     private var filteredStations: [Station] {
-        let favCodes = Set(favouriteCodes)
+        let favCodes = Set(favouriteStations.map(\.crsCode))
         let stations = allStations.filter { $0.crsCode != currentStationCrs && !favCodes.contains($0.crsCode) }
         if searchText.isEmpty { return stations }
         return stations.filter {
@@ -110,7 +101,7 @@ struct FilterStationSheet: View {
                     .padding(.vertical, 2)
                     .background(Theme.brandSubtle, in: RoundedRectangle(cornerRadius: 4))
                 Text(station.name)
-                    .font(.body)
+                    .font(Font.body.smallCapsIfEnabled(stationNamesSmallCaps))
                     .foregroundStyle(.primary)
             }
         }

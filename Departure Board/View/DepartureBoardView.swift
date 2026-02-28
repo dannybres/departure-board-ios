@@ -7,6 +7,19 @@
 
 import SwiftUI
 
+private struct BoardLoadState {
+    var board: DepartureBoard? = nil
+    var isLoading: Bool = true
+    var errorMessage: String? = nil
+    var lastUpdate: Date? = nil
+}
+
+private struct FilterState {
+    var station: Station? = nil
+    var type: String = "to"
+    var showSheet: Bool = false
+}
+
 struct DepartureBoardView: View {
 
     let station: Station
@@ -19,22 +32,18 @@ struct DepartureBoardView: View {
     var onNavigateToStation: ((StationDestination) -> Void)?
 
     // MARK: - State
-    @State private var board: DepartureBoard?
-    @State private var isLoading = true
+    @State private var boardLoad = BoardLoadState()
+    @State private var filter = FilterState()
     @State private var showInfo = false
-    @State private var errorMessage: String?
     @State private var selectedBoard: BoardType = .departures
     @State private var selectedServiceID: String?
     @State private var stationInfoCrs: String?
     @State private var didAutoNavigate = false
     @State private var timeOffset: Int? = nil
-    @State private var filterStation: Station? = nil
-    @State private var filterType: String = "to"
-    @State private var showFilterSheet = false
-    @State private var lastBoardUpdate: Date? = nil
-@AppStorage(SharedDefaults.Keys.favouriteItems, store: SharedDefaults.shared) private var favouriteItemsData: Data = Data()
-    @AppStorage(SharedDefaults.Keys.savedFilters, store: SharedDefaults.shared) private var savedFiltersData: Data = Data()
+    @State private var showNrccMessages = false
+@AppStorage(SharedDefaults.Keys.favouriteBoards, store: SharedDefaults.shared) private var favouriteBoardsData: Data = Data()
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.stationNamesSmallCaps) private var stationNamesSmallCaps
 
     init(station: Station, initialBoardType: BoardType = .departures, pendingServiceID: String? = nil, initialFilterStation: Station? = nil, initialFilterType: String? = nil, selectedService: Binding<Service?>? = nil, onNavigateToStation: ((StationDestination) -> Void)? = nil, navigationPath: Binding<NavigationPath>) {
         self.station = station
@@ -46,8 +55,7 @@ struct DepartureBoardView: View {
         self.onNavigateToStation = onNavigateToStation
         self._navigationPath = navigationPath
         _selectedBoard = State(initialValue: initialBoardType)
-        _filterStation = State(initialValue: initialFilterStation)
-        _filterType = State(initialValue: initialFilterType ?? "to")
+        _filter = State(initialValue: FilterState(station: initialFilterStation, type: initialFilterType ?? "to"))
     }
 
     private var highlightedServiceID: String? {
@@ -55,11 +63,11 @@ struct DepartureBoardView: View {
     }
 
     private var hasTrains: Bool {
-        !(board?.trainServices ?? []).isEmpty
+        !(boardLoad.board?.trainServices ?? []).isEmpty
     }
 
     private var hasBuses: Bool {
-        !(board?.busServices ?? []).isEmpty
+        !(boardLoad.board?.busServices ?? []).isEmpty
     }
 
     private var hasAnyServices: Bool {
@@ -88,7 +96,7 @@ struct DepartureBoardView: View {
             await loadBoard(type: selectedBoard)
         }
         .overlay {
-            if isLoading && board == nil {
+            if boardLoad.isLoading && boardLoad.board == nil {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(.background)
@@ -96,7 +104,7 @@ struct DepartureBoardView: View {
         }
         .safeAreaInset(edge: .top) {
             let showTimeOffset = (timeOffset ?? 0) != 0
-            let showFilter = filterStation != nil
+            let showFilter = filter.station != nil
             if showTimeOffset || showFilter {
                 HStack(spacing: 8) {
                     if showTimeOffset {
@@ -122,7 +130,7 @@ struct DepartureBoardView: View {
                     }
                     if showFilter {
                         Button {
-                            filterStation = nil
+                            filter.station = nil
                             Task { await loadBoard(type: selectedBoard) }
                         } label: {
                             HStack(spacing: 6) {
@@ -146,18 +154,8 @@ struct DepartureBoardView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: timeOffset)
-        .animation(.easeInOut(duration: 0.25), value: filterStation?.crsCode)
+        .animation(.easeInOut(duration: 0.25), value: filter.station?.crsCode)
         .toolbar {
-            if let updated = lastBoardUpdate {
-                ToolbarItem(placement: horizontalSizeClass == .regular ? .bottomBar : .navigationBarTrailing) {
-                    TimelineView(.periodic(from: .now, by: 10)) { context in
-                        Text(ContentView.fuzzyLabel(from: updated, tick: context.date))
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .fixedSize()
-                    }
-                }
-            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 12) {
                     Button {
@@ -167,9 +165,9 @@ struct DepartureBoardView: View {
                             .foregroundStyle(Theme.brand)
                     }
                     Button {
-                        showFilterSheet = true
+                        filter.showSheet = true
                     } label: {
-                        Image(systemName: filterStation != nil ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                        Image(systemName: filter.station != nil ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                     }
                     Button {
                         showInfo = true
@@ -198,14 +196,14 @@ struct DepartureBoardView: View {
                 }
             })
         }
-        .sheet(isPresented: $showFilterSheet) {
+        .sheet(isPresented: $filter.showSheet) {
             FilterStationSheet(
                 currentStationCrs: station.crsCode,
-                filterType: $filterType,
+                filterType: $filter.type,
                 onSelect: { selected in
-                    filterStation = selected
-                    showFilterSheet = false
-                    SavedFilter.addRecent(stationCrs: station.crsCode, stationName: station.name, filterCrs: selected.crsCode, filterName: selected.name, filterType: filterType, boardType: selectedBoard)
+                    filter.station = selected
+                    filter.showSheet = false
+                    SharedDefaults.addRecentFilter(id: SharedDefaults.boardID(crs: station.crsCode, boardType: selectedBoard, filterCrs: selected.crsCode, filterType: filter.type))
                     Task { await loadBoard(type: selectedBoard) }
                 }
             )
@@ -240,7 +238,7 @@ struct DepartureBoardView: View {
         .onChange(of: selectedBoard) {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             timeOffset = nil
-            filterStation = nil
+            filter.station = nil
             Task {
                 await loadBoard(type: selectedBoard, showLoading: true)
             }
@@ -248,8 +246,8 @@ struct DepartureBoardView: View {
         .task {
             await loadBoard(type: selectedBoard, showLoading: true)
             if let pendingServiceID, !didAutoNavigate,
-               let service = (board?.trainServices ?? []).first(where: { $0.serviceId == pendingServiceID })
-                    ?? (board?.busServices ?? []).first(where: { $0.serviceId == pendingServiceID }) {
+               let service = (boardLoad.board?.trainServices ?? []).first(where: { $0.serviceId == pendingServiceID })
+                    ?? (boardLoad.board?.busServices ?? []).first(where: { $0.serviceId == pendingServiceID }) {
                 didAutoNavigate = true
                 if let selectedService {
                     selectedService.wrappedValue = service
@@ -290,8 +288,37 @@ struct DepartureBoardView: View {
                 .disabled(timeOffset ?? 0 <= -120)
             }
 
+            // NRCC messages
+            if let messages = boardLoad.board?.nrccMessages, !messages.isEmpty {
+                Section {
+                    Button {
+                        withAnimation { showNrccMessages.toggle() }
+                    } label: {
+                        HStack {
+                            Label("\(messages.count == 1 ? "1 notice" : "\(messages.count) notices")", systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Image(systemName: showNrccMessages ? "chevron.up" : "chevron.down")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    if showNrccMessages {
+                        ForEach(Array(messages.enumerated()), id: \.offset) { _, message in
+                            Text(message)
+                                .font(.subheadline)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.vertical, 2)
+                        }
+                    }
+                }
+                .listRowBackground(Color.orange.opacity(0.08))
+            }
+
             // Train services
-            if let trains = board?.trainServices, !trains.isEmpty {
+            if let trains = boardLoad.board?.trainServices, !trains.isEmpty {
                 if showServiceTypeHeaders {
                     Section {
                         Label("Trains", systemImage: "tram.fill")
@@ -307,7 +334,7 @@ struct DepartureBoardView: View {
             }
 
             // Bus services
-            if let buses = board?.busServices, !buses.isEmpty {
+            if let buses = boardLoad.board?.busServices, !buses.isEmpty {
                 if showServiceTypeHeaders {
                     Section {
                         Label("Buses", systemImage: "bus.fill")
@@ -351,19 +378,19 @@ struct DepartureBoardView: View {
             }
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
-        } else if let errorMessage {
+        } else if let errorMessage = boardLoad.errorMessage {
             Text(errorMessage)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding()
                 .frame(maxWidth: .infinity)
-        } else if !isLoading {
-            if let filterStation {
+        } else if !boardLoad.isLoading {
+            if let filterStation = filter.station {
                 VStack(spacing: 12) {
-                    Text("No services \(filterType == "to" ? "calling at" : "from") \(filterStation.name)")
+                    (Text("No services \(filter.type == "to" ? "calling at" : "from") ") + Text(filterStation.name).font(Font.body.smallCapsIfEnabled(stationNamesSmallCaps)))
                         .foregroundStyle(.secondary)
                     Button("Clear Filter") {
-                        self.filterStation = nil
+                        self.filter.station = nil
                         Task { await loadBoard(type: selectedBoard) }
                     }
                     .foregroundStyle(Theme.brand)
@@ -419,9 +446,9 @@ struct DepartureBoardView: View {
                 if destination.crs != station.crsCode,
                    let destStation = StationCache.load()?.first(where: { $0.crsCode == destination.crs }) {
                     Button {
-                        filterStation = destStation
-                        filterType = "to"
-                        SavedFilter.addRecent(stationCrs: station.crsCode, stationName: station.name, filterCrs: destination.crs, filterName: destination.locationName, filterType: "to", boardType: selectedBoard)
+                        filter.station = destStation
+                        filter.type = "to"
+                        SharedDefaults.addRecentFilter(id: SharedDefaults.boardID(crs: station.crsCode, boardType: selectedBoard, filterCrs: destination.crs, filterType: "to"))
                         Task { await loadBoard(type: selectedBoard) }
                     } label: {
                         Label("Filter to \(destination.locationName)", systemImage: "line.3.horizontal.decrease.circle")
@@ -458,58 +485,35 @@ struct DepartureBoardView: View {
 
     // MARK: - Favourites
 
-    private var favouriteItemIDs: [String] {
-        (try? JSONDecoder().decode([String].self, from: favouriteItemsData)) ?? []
+    private var favouriteBoardIDs: [String] {
+        (try? JSONDecoder().decode([String].self, from: favouriteBoardsData)) ?? []
     }
 
     private var currentFavouriteID: String {
-        if let fs = filterStation {
-            return "\(station.crsCode)-\(selectedBoard.rawValue)-\(filterType)-\(fs.crsCode)"
+        if let fs = filter.station {
+            return SharedDefaults.boardID(crs: station.crsCode, boardType: selectedBoard, filterCrs: fs.crsCode, filterType: filter.type)
         }
-        return SharedDefaults.stationFavID(crs: station.crsCode, boardType: selectedBoard)
+        return SharedDefaults.boardID(crs: station.crsCode, boardType: selectedBoard)
     }
 
     private var isBoardFavourited: Bool {
-        favouriteItemIDs.contains(currentFavouriteID)
+        favouriteBoardIDs.contains(currentFavouriteID)
     }
 
     private func toggleBoardFavourite() {
-        var items = favouriteItemIDs
+        var items = favouriteBoardIDs
+        let id = currentFavouriteID
 
-        if let fs = filterStation {
-            // Toggle filter favourite
-            let filterID = currentFavouriteID
-            var allFilters = (try? JSONDecoder().decode([SavedFilter].self, from: savedFiltersData)) ?? []
-
-            if let idx = allFilters.firstIndex(where: { $0.id == filterID }) {
-                let wasFav = allFilters[idx].isFavourite
-                allFilters[idx].isFavourite = !wasFav
-                if wasFav {
-                    items.removeAll { $0 == filterID }
-                } else {
-                    items.append(filterID)
-                }
-            } else {
-                // Filter doesn't exist yet — create and favourite it
-                let newFilter = SavedFilter(stationCrs: station.crsCode, stationName: station.name, filterCrs: fs.crsCode, filterName: fs.name, filterType: filterType, boardType: selectedBoard, isFavourite: true)
-                allFilters.append(newFilter)
-                items.append(filterID)
-            }
-
-            if let data = try? JSONEncoder().encode(allFilters) {
-                savedFiltersData = data
-            }
+        if let idx = items.firstIndex(of: id) {
+            items.remove(at: idx)
         } else {
-            // Toggle station favourite
-            let id = currentFavouriteID
-            if let idx = items.firstIndex(of: id) {
-                items.remove(at: idx)
-            } else {
-                items.append(id)
+            items.append(id)
+            if filter.station != nil {
+                SharedDefaults.removeRecentFilter(id: id)
             }
         }
 
-        favouriteItemsData = (try? JSONEncoder().encode(items)) ?? Data()
+        favouriteBoardsData = (try? JSONEncoder().encode(items)) ?? Data()
         let allCodes = Set((StationCache.load() ?? []).map(\.crsCode))
         SharedDefaults.syncStationFavourites(from: items, allStationCodes: allCodes)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -518,8 +522,8 @@ struct DepartureBoardView: View {
     // MARK: - Helper Methods
 
     private var filterChipLabel: String {
-        let name = board?.filterLocationName ?? filterStation?.name ?? ""
-        return filterType == "to" ? "Calling at \(name)" : "From \(name)"
+        let name = boardLoad.board?.filterLocationName ?? filter.station?.name ?? ""
+        return filter.type == "to" ? "Calling at \(name)" : "From \(name)"
     }
 
     private var showingFromTime: String {
@@ -527,7 +531,7 @@ struct DepartureBoardView: View {
         let offsetString = offsetDate.formatted(date: .omitted, time: .shortened)
 
         // If the first train is earlier than our calculated offset, use the train's time
-        if let firstScheduled = board?.trainServices?.first?.scheduled,
+        if let firstScheduled = boardLoad.board?.trainServices?.first?.scheduled,
            firstScheduled < offsetString {
             return firstScheduled
         }
@@ -535,26 +539,27 @@ struct DepartureBoardView: View {
     }
 
     private func loadBoard(type: BoardType, showLoading: Bool = false, silent: Bool = false) async {
-        if showLoading { isLoading = true }
+        if showLoading { boardLoad.isLoading = true }
         do {
-            let result = try await StationViewModel.fetchBoard(for: station.crsCode, type: type, filterCrs: filterStation?.crsCode, filterType: filterStation != nil ? filterType : nil, timeOffset: timeOffset)
+            let result = try await StationViewModel.fetchBoard(for: station.crsCode, type: type, filterCrs: filter.station?.crsCode, filterType: filter.station != nil ? filter.type : nil, timeOffset: timeOffset)
             withAnimation(.easeInOut(duration: 0.3)) {
-                board = result
-                errorMessage = nil
+                boardLoad.board = result
+                boardLoad.errorMessage = nil
             }
             if !silent { UINotificationFeedbackGenerator().notificationOccurred(.success) }
-            lastBoardUpdate = Date()
+            boardLoad.lastUpdate = Date()
         } catch {
-            if !silent { errorMessage = "Failed to load board" }
+            if !silent { boardLoad.errorMessage = "Failed to load board" }
             if !silent { UINotificationFeedbackGenerator().notificationOccurred(.error) }
         }
-        isLoading = false
+        boardLoad.isLoading = false
     }
 }
 
 // MARK: - Departure Row Subview
 
 struct DepartureRow: View {
+    @Environment(\.stationNamesSmallCaps) private var stationNamesSmallCaps
 
     let service: Service
     let boardType: BoardType
@@ -580,12 +585,14 @@ struct DepartureRow: View {
         HStack(alignment: .top, spacing: 12) {
             Text(service.scheduled)
                 .font(Theme.timeFont)
-                .frame(width: 60, alignment: .leading)
+                .lineLimit(1)
+                .fixedSize()
+                .frame(width: 44, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(locations.map(\.locationName).joined(separator: " & "))
-                        .font(.title3.weight(.semibold))
+                        .font(Font.title3.weight(.semibold).smallCapsIfEnabled(stationNamesSmallCaps))
 
                     if isCancelled {
                         Image(systemName: "xmark.circle.fill")
@@ -601,7 +608,7 @@ struct DepartureRow: View {
                 let uniqueVias = Array(Set(locations.compactMap(\.via)))
                 ForEach(uniqueVias, id: \.self) { via in
                     Text(via)
-                        .font(.subheadline)
+                        .font(Font.subheadline.smallCapsIfEnabled(stationNamesSmallCaps))
                         .foregroundStyle(.secondary)
                 }
 

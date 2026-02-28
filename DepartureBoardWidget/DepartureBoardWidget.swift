@@ -14,21 +14,19 @@ import AppIntents
 struct BoardQuery: EntityQuery {
     func entities(for identifiers: [String]) async throws -> [BoardEntity] {
         let stations = loadStationCache()
-        let filters = loadSavedFilters()
         return identifiers.compactMap { id in
-            boardEntity(for: id, stations: stations, filters: filters)
+            boardEntity(for: id, stations: stations)
         }
     }
 
     func suggestedEntities() async throws -> [BoardEntity] {
         let stations = loadStationCache()
-        let favItems = loadFavouriteItems()
-        let filters = loadSavedFilters()
+        let favItems = loadFavouriteBoards()
 
         // Build entities from favourite items first
         var results: [BoardEntity] = []
         for itemID in favItems {
-            if let entity = boardEntity(for: itemID, stations: stations, filters: filters) {
+            if let entity = boardEntity(for: itemID, stations: stations) {
                 results.append(entity)
             }
         }
@@ -36,7 +34,7 @@ struct BoardQuery: EntityQuery {
         // Then add all stations as departures (excluding already-added)
         let addedIDs = Set(results.map(\.id))
         for station in stations {
-            let depID = SharedDefaults.stationFavID(crs: station.crsCode, boardType: .departures)
+            let depID = SharedDefaults.boardID(crs: station.crsCode, boardType: .departures)
             if !addedIDs.contains(depID) {
                 results.append(BoardEntity(
                     id: depID,
@@ -45,8 +43,7 @@ struct BoardQuery: EntityQuery {
                     crs: station.crsCode,
                     boardType: .departures,
                     filterCrs: nil,
-                    filterType: nil,
-                    isFavourite: false
+                    filterType: nil
                 ))
             }
         }
@@ -55,43 +52,39 @@ struct BoardQuery: EntityQuery {
     }
 
     func defaultResult() async -> BoardEntity? {
-        let favItems = loadFavouriteItems()
+        let favItems = loadFavouriteBoards()
         let stations = loadStationCache()
-        let filters = loadSavedFilters()
         guard let firstID = favItems.first else { return nil }
-        return boardEntity(for: firstID, stations: stations, filters: filters)
+        return boardEntity(for: firstID, stations: stations)
     }
 
-    private func boardEntity(for id: String, stations: [Station], filters: [SavedFilter]) -> BoardEntity? {
-        // Try station parse: "WAT-departures"
-        if let parsed = SharedDefaults.parseStationFavID(id),
-           let station = stations.first(where: { $0.crsCode == parsed.crs }) {
+    private func boardEntity(for id: String, stations: [Station]) -> BoardEntity? {
+        guard let parsed = SharedDefaults.parseBoardID(id),
+              let station = stations.first(where: { $0.crsCode == parsed.crs }) else { return nil }
+        if let filterCrs = parsed.filterCrs, let filterType = parsed.filterType {
+            let filterStation = stations.first(where: { $0.crsCode == filterCrs })
+            let filterLabel = filterType == "to"
+                ? "Calling at \(filterStation?.name ?? filterCrs)"
+                : "From \(filterStation?.name ?? filterCrs)"
             return BoardEntity(
                 id: id,
                 displayName: station.name,
-                subtitle: parsed.boardType.rawValue.capitalized,
-                crs: station.crsCode,
+                subtitle: "\(parsed.boardType.rawValue.capitalized) · \(filterLabel)",
+                crs: parsed.crs,
                 boardType: parsed.boardType,
-                filterCrs: nil,
-                filterType: nil,
-                isFavourite: true
+                filterCrs: filterCrs,
+                filterType: filterType
             )
         }
-        // Try filter: "WAT-departures-to-CLJ"
-        if let filter = filters.first(where: { $0.id == id }) {
-            let station = stations.first(where: { $0.crsCode == filter.stationCrs })
-            return BoardEntity(
-                id: id,
-                displayName: station?.name ?? filter.stationName,
-                subtitle: "\(filter.boardType.rawValue.capitalized) · \(filter.filterLabel)",
-                crs: filter.stationCrs,
-                boardType: filter.boardType,
-                filterCrs: filter.filterCrs,
-                filterType: filter.filterType,
-                isFavourite: filter.isFavourite
-            )
-        }
-        return nil
+        return BoardEntity(
+            id: id,
+            displayName: station.name,
+            subtitle: parsed.boardType.rawValue.capitalized,
+            crs: parsed.crs,
+            boardType: parsed.boardType,
+            filterCrs: nil,
+            filterType: nil
+        )
     }
 }
 
@@ -106,7 +99,6 @@ struct BoardEntity: AppEntity {
     let boardType: BoardType
     let filterCrs: String?
     let filterType: String?
-    let isFavourite: Bool
 
     var displayRepresentation: DisplayRepresentation {
         DisplayRepresentation(title: "\(displayName)", subtitle: "\(subtitle)")
@@ -233,18 +225,15 @@ struct BoardConfig {
 }
 
 private func defaultBoards(count: Int) -> [BoardConfig] {
-    let favItems = loadFavouriteItems()
+    let favItems = loadFavouriteBoards()
     let stations = loadStationCache()
-    let filters = loadSavedFilters()
 
     var boards: [BoardConfig] = []
     for itemID in favItems {
         if boards.count >= count { break }
-        if let parsed = SharedDefaults.parseStationFavID(itemID),
+        if let parsed = SharedDefaults.parseBoardID(itemID),
            stations.contains(where: { $0.crsCode == parsed.crs }) {
-            boards.append(BoardConfig(crs: parsed.crs, boardType: parsed.boardType, filterCrs: nil, filterType: nil))
-        } else if let filter = filters.first(where: { $0.id == itemID && $0.isFavourite }) {
-            boards.append(BoardConfig(crs: filter.stationCrs, boardType: filter.boardType, filterCrs: filter.filterCrs, filterType: filter.filterType))
+            boards.append(BoardConfig(crs: parsed.crs, boardType: parsed.boardType, filterCrs: parsed.filterCrs, filterType: parsed.filterType))
         }
     }
     return boards
@@ -315,19 +304,9 @@ private func fetchEntry(boards: [BoardConfig], servicesPerStation: Int) async ->
     return DepartureEntry(date: Date(), stations: stationDepartures)
 }
 
-private func loadFavouriteItems() -> [String] {
-    guard let data = SharedDefaults.shared.data(forKey: SharedDefaults.Keys.favouriteItems) else {
-        // Fall back to legacy
-        guard let data = SharedDefaults.shared.data(forKey: SharedDefaults.Keys.favouriteStations) else { return [] }
-        let codes = (try? JSONDecoder().decode([String].self, from: data)) ?? []
-        return codes.map { "\($0)-departures" }
-    }
+private func loadFavouriteBoards() -> [String] {
+    guard let data = SharedDefaults.shared.data(forKey: SharedDefaults.Keys.favouriteBoards) else { return [] }
     return (try? JSONDecoder().decode([String].self, from: data)) ?? []
-}
-
-private func loadSavedFilters() -> [SavedFilter] {
-    guard let data = SharedDefaults.shared.data(forKey: SharedDefaults.Keys.savedFilters) else { return [] }
-    return (try? JSONDecoder().decode([SavedFilter].self, from: data)) ?? []
 }
 
 private func loadStationCache() -> [Station] {
@@ -478,10 +457,13 @@ struct StationBlock: View {
                 }()
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(station.name)
-                        .font(.caption.weight(.bold))
+                        .font({
+                            let sc = UserDefaults.standard.bool(forKey: "stationNamesSmallCaps")
+                            return Font.caption.weight(.bold).smallCapsIfEnabled(sc)
+                        }())
                         .foregroundStyle(Theme.brand)
                         .lineLimit(1)
-                        .fixedSize()
+                        .minimumScaleFactor(0.6)
                     if let filterText {
                         Text(filterText)
                             .font(.system(size: 9).weight(.medium))
