@@ -54,11 +54,14 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
-                Stepper("Show \(nearbyCount) stations", value: $nearbyCount, in: 1...25)
+                VStack(alignment: .leading, spacing: 4) {
+                    Stepper("Show \(nearbyCount) stations", value: $nearbyCount, in: 1...25)
+                    Text("Controls how many nearby stations appear at the top of the station list when location access is enabled. Increase this if you live near several stations you use regularly, or reduce it to keep the list tidy.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             } header: {
                 Text("Nearby Stations")
-            } footer: {
-                Text("Controls how many nearby stations appear at the top of the station list when location access is enabled. Increase this if you live near several stations you use regularly, or reduce it to keep the list tidy.")
             }
 
             Section {
@@ -87,27 +90,27 @@ struct SettingsView: View {
             }
 
             Section {
-                Picker("On Launch", selection: $autoLoadMode) {
-                    Text("Disabled").tag("off")
-                    Text("Nearest Station").tag("nearest")
-                    Text("Nearby Favourite").tag("favourite")
-                    Text("Favourite, then Nearest").tag("favouriteOrNearest")
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("On Launch", selection: $autoLoadMode) {
+                        Text("Disabled").tag("off")
+                        Text("Nearest Station").tag("nearest")
+                        Text("Nearby Favourite").tag("favourite")
+                        Text("Favourite, then Nearest").tag("favouriteOrNearest")
+                    }
+                    if autoLoadMode == "favourite" || autoLoadMode == "favouriteOrNearest" {
+                        Stepper("Within \(autoLoadDistanceMiles) mi", value: $autoLoadDistanceMiles, in: 1...50)
+                    }
+                    Text(autoLoadModeDescription)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if autoLoadMode == "favourite" || autoLoadMode == "favouriteOrNearest" {
+                        Text("When multiple favourites are within range, the one highest in your favourites list is loaded — not the closest. Reorder your favourites to control which board opens first.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-
-                if autoLoadMode == "favourite" || autoLoadMode == "favouriteOrNearest" {
-                    Stepper("Within \(autoLoadDistanceMiles) mi", value: $autoLoadDistanceMiles, in: 1...50)
-                }
-
-                Text(autoLoadModeDescription)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             } header: {
                 Text("Auto-Load on Launch")
-            } footer: {
-                if autoLoadMode == "favourite" || autoLoadMode == "favouriteOrNearest" {
-                    Text("When multiple favourites are within range, the one highest in your favourites list is loaded — not the closest. Reorder your favourites to control which board opens first.")
-                        .font(.caption)
-                }
             }
 
             Section {
@@ -136,14 +139,17 @@ struct SettingsView: View {
             }
 
             Section {
-                Picker("Open in", selection: $mapsProvider) {
-                    Text("Apple Maps").tag("apple")
-                    Text("Google Maps").tag("google")
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("Open in", selection: $mapsProvider) {
+                        Text("Apple Maps").tag("apple")
+                        Text("Google Maps").tag("google")
+                    }
+                    Text("Choose which maps app opens when you tap a station's location — for example from the station information sheet. Google Maps must be installed for that option to work.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             } header: {
                 Text("Maps")
-            } footer: {
-                Text("Choose which maps app opens when you tap a station's location — for example from the station information sheet. Google Maps must be installed for that option to work.")
             }
 
             Section {
@@ -249,7 +255,7 @@ struct SettingsView: View {
             } header: {
                 Text("Favourites Backup")
             } footer: {
-                Text("Export saves all your favourite boards to a JSON file you can share or back up. Import reads a file and appends any favourites not already in your list — existing favourites are never overwritten or removed.")
+                Text("Export saves all your favourite boards to a JSON file you can share or back up. Import reads a file and appends any favourites not already in your list — existing favourites are never overwritten or removed.\n\nYou can also craft a file by hand. Format: {\"favourites\":[\"MAN-dep\",\"LDS-arr\",\"LIV-dep-to-EUS\"]}. Each entry is CRS-dep or CRS-arr, with an optional -to-CRS or -from-CRS suffix for filtered boards.")
             }
 
             Section {
