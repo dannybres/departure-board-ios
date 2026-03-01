@@ -128,7 +128,7 @@ private struct NextServicePillView: View {
     let state: ContentState
     let refreshID: Int
     @Environment(\.stationNamesSmallCaps) private var stationNamesSmallCaps
-    @AppStorage("splitFlapRefresh") private var splitFlapRefresh: Bool = true
+    @AppStorage("splitFlapRefresh") private var splitFlapRefresh: Bool = false
 
     var body: some View {
         HStack(spacing: 5) {
@@ -236,15 +236,15 @@ struct ContentView: View {
     @State private var stationInfoCrs: String?
     @AppStorage(SharedDefaults.Keys.favouriteBoards, store: SharedDefaults.shared) private var favouriteBoardsData: Data = Data()
     @AppStorage(SharedDefaults.Keys.recentFilters, store: SharedDefaults.shared) private var recentFiltersData: Data = Data()
-    @AppStorage("nearbyStationCount") private var nearbyCount: Int = 10
+    @AppStorage("nearbyStationCount") private var nearbyCount: Int = 5
     @AppStorage("recentFilterCount") private var recentFilterCount: Int = 3
     @AppStorage("showRecentFilters") private var showRecentFilters: Bool = true
     @AppStorage("mapsProvider") private var mapsProvider: String = "apple"
     @AppStorage("showNextServiceOnFavourites") private var showNextServiceOnFavourites: Bool = true
-    @AppStorage("nextServiceTappable") private var nextServiceTappable: Bool = true
-    @AppStorage("splitFlapRefresh") private var splitFlapRefresh: Bool = true
+    @AppStorage("nextServiceTappable") private var nextServiceTappable: Bool = false
+    @AppStorage("splitFlapRefresh") private var splitFlapRefresh: Bool = false
     @AppStorage("stationNamesSmallCaps") private var stationNamesSmallCaps: Bool = false
-    @AppStorage("autoLoadMode") private var autoLoadMode: String = "nearest"
+    @AppStorage("autoLoadMode") private var autoLoadMode: String = "off"
     @AppStorage("autoLoadDistanceMiles") private var autoLoadDistanceMiles: Int = 2
     @State private var nextServiceStore = NextServiceStore()
     @State private var tickDate = Date()
@@ -876,7 +876,7 @@ struct ContentView: View {
                                     Button {
                                         removeFilterFromFavourites(id: parsed.id)
                                     } label: {
-                                        Label("Unfavourite", systemImage: "star.slash")
+                                        Label("=noUnfavourite", systemImage: "star.slash")
                                     }
                                     .tint(.red)
                                 }

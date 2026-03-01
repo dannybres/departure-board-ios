@@ -65,7 +65,7 @@ struct Departure_BoardApp: App {
 
     init() {
         SharedDefaults.migrateIfNeeded()
-        UserDefaults.standard.register(defaults: ["autoLoadMode": "nearest"])
+        UserDefaults.standard.register(defaults: ["autoLoadMode": "off"])
     }
 
     var body: some Scene {

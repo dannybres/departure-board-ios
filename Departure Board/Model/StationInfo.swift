@@ -304,11 +304,37 @@ struct StationInterchange: Codable {
     let taxiRank: AvailableField?
     let busServices: AvailableField?
     let metroServices: AvailableField?
-    let carPark: CarParkInfo?
+    let carPark: [CarParkInfo]?
     let railReplacementServices: RailReplacementServices?
     let airport: AvailableField?
     let carHire: AvailableField?
     let cycleHire: AvailableField?
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        cycleStorageAvailability  = try c.decodeIfPresent(Bool.self,           forKey: .cycleStorageAvailability)
+        cycleStorageSpaces        = try c.decodeIfPresent(Int.self,            forKey: .cycleStorageSpaces)
+        cycleStorageSheltered     = try c.decodeIfPresent(Bool.self,           forKey: .cycleStorageSheltered)
+        cycleStorageCctv          = try c.decodeIfPresent(Bool.self,           forKey: .cycleStorageCctv)
+        cycleStorageLocation      = try c.decodeIfPresent(String.self,         forKey: .cycleStorageLocation)
+        cycleStorageNote          = try c.decodeIfPresent(NoteField.self,      forKey: .cycleStorageNote)
+        cycleStorageType          = try c.decodeIfPresent([String].self,       forKey: .cycleStorageType)
+        taxiRank                  = try c.decodeIfPresent(AvailableField.self, forKey: .taxiRank)
+        busServices               = try c.decodeIfPresent(AvailableField.self, forKey: .busServices)
+        metroServices             = try c.decodeIfPresent(AvailableField.self, forKey: .metroServices)
+        railReplacementServices   = try c.decodeIfPresent(RailReplacementServices.self, forKey: .railReplacementServices)
+        airport                   = try c.decodeIfPresent(AvailableField.self, forKey: .airport)
+        carHire                   = try c.decodeIfPresent(AvailableField.self, forKey: .carHire)
+        cycleHire                 = try c.decodeIfPresent(AvailableField.self, forKey: .cycleHire)
+        // carPark may be a single object or an array depending on the station
+        if let array = try? c.decodeIfPresent([CarParkInfo].self, forKey: .carPark) {
+            carPark = array
+        } else if let single = try? c.decodeIfPresent(CarParkInfo.self, forKey: .carPark) {
+            carPark = [single]
+        } else {
+            carPark = nil
+        }
+    }
 }
 
 struct RailReplacementServices: Codable {

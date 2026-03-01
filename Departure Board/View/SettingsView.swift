@@ -11,15 +11,15 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
 
     @ObservedObject var viewModel: StationViewModel
-    @AppStorage("nearbyStationCount") var nearbyCount: Int = 10
+    @AppStorage("nearbyStationCount") var nearbyCount: Int = 5
     @AppStorage("recentFilterCount") var recentFilterCount: Int = 3
     @AppStorage("showRecentFilters") var showRecentFilters: Bool = true
     @AppStorage("mapsProvider") var mapsProvider: String = "apple"
     @AppStorage("showNextServiceOnFavourites") var showNextServiceOnFavourites: Bool = true
-    @AppStorage("nextServiceTappable") var nextServiceTappable: Bool = true
-    @AppStorage("splitFlapRefresh") var splitFlapRefresh: Bool = true
+    @AppStorage("nextServiceTappable") var nextServiceTappable: Bool = false
+    @AppStorage("splitFlapRefresh") var splitFlapRefresh: Bool = false
     @AppStorage("stationNamesSmallCaps") var stationNamesSmallCaps: Bool = false
-    @AppStorage("autoLoadMode") var autoLoadMode: String = "nearest"
+    @AppStorage("autoLoadMode") var autoLoadMode: String = "off"
     @AppStorage("autoLoadDistanceMiles") var autoLoadDistanceMiles: Int = 2
     @AppStorage(SharedDefaults.Keys.favouriteBoards, store: SharedDefaults.shared) private var favouriteBoardsData: Data = Data()
     @State private var isRefreshing = false
@@ -31,8 +31,9 @@ struct SettingsView: View {
     @State private var importResult: ImportResult? = nil
 
     private struct ImportResult {
-        let message: String        // e.g. "Imported 3 favourites." or "No new favourites found."
-        let items: [String]        // human-readable description of each added board
+        let message: String
+        let imported: [String]     // human-readable description of each added board
+        let skipped: [String]      // human-readable description of each already-existing board
     }
 
     private var autoLoadModeDescription: String {
@@ -52,15 +53,34 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("Nearby Stations") {
+            Section {
                 Stepper("Show \(nearbyCount) stations", value: $nearbyCount, in: 1...25)
+            } header: {
+                Text("Nearby Stations")
+            } footer: {
+                Text("Controls how many nearby stations appear at the top of the station list when location access is enabled. Increase this if you live near several stations you use regularly, or reduce it to keep the list tidy.")
             }
 
             Section {
-                Toggle("Show Next Service", isOn: $showNextServiceOnFavourites)
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Show Next Service", isOn: $showNextServiceOnFavourites)
+                    Text("Displays the next scheduled departure time on each favourite card, so you can see at a glance how long you have before your next train — without opening the full board.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 if showNextServiceOnFavourites {
-                    Toggle("Tap to Jump to Service", isOn: $nextServiceTappable)
-                    Toggle("Split-Flap Refresh", isOn: $splitFlapRefresh)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle("Tap to Jump to Service", isOn: $nextServiceTappable)
+                        Text("When enabled, tapping the next departure time on a favourites card opens the full service detail — calling points, live delays, and platform. Turn this off if you prefer taps to open the full board instead.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle("Split-Flap Refresh", isOn: $splitFlapRefresh)
+                        Text("Animates departure times with a split-flap board effect whenever live data refreshes. Satisfying to watch, but turn this off if you find the motion distracting or want to reduce battery use.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             } header: {
                 Text("Favourites")
@@ -90,25 +110,43 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Appearance") {
-                Toggle("Station Names in Small Caps", isOn: $stationNamesSmallCaps)
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Station Names in Small Caps", isOn: $stationNamesSmallCaps)
+                    Text("Renders station names throughout the app in small capitals — a more compact typographic style that some people find easier to scan on a long list. This is purely cosmetic and has no effect on functionality.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Appearance")
             }
 
-            Section("Recent Filters") {
-                Toggle("Show Recent Filters", isOn: $showRecentFilters)
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Show Recent Filters", isOn: $showRecentFilters)
+                    Text("When you filter a board to show trains to or from a specific station, that filter is saved so you can reapply it quickly next time. The count controls how many past filters are remembered — older ones are dropped once the list is full.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 if showRecentFilters {
                     Stepper("Keep \(recentFilterCount) recent", value: $recentFilterCount, in: 1...10)
                 }
+            } header: {
+                Text("Recent Filters")
             }
 
-            Section("Maps") {
+            Section {
                 Picker("Open in", selection: $mapsProvider) {
                     Text("Apple Maps").tag("apple")
                     Text("Google Maps").tag("google")
                 }
+            } header: {
+                Text("Maps")
+            } footer: {
+                Text("Choose which maps app opens when you tap a station's location — for example from the station information sheet. Google Maps must be installed for that option to work.")
             }
 
-            Section("Station Data") {
+            Section {
                 HStack {
                     Text("Last Updated")
                     Spacer()
@@ -147,6 +185,10 @@ struct SettingsView: View {
                     }
                 }
                 .disabled(isRefreshing)
+            } header: {
+                Text("Station Data")
+            } footer: {
+                Text("The app caches a list of all UK stations so searches work instantly and offline. This data changes rarely — new stations, closures, or name changes — so a manual refresh is only needed if something looks out of date.")
             }
             Section("Debug") {
                 HStack {
@@ -183,12 +225,23 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(result.message)
                             .font(.caption)
-                            .foregroundStyle(result.items.isEmpty ? .secondary : .primary)
-                        ForEach(result.items, id: \.self) { item in
+                            .foregroundStyle(result.imported.isEmpty ? .secondary : .primary)
+                        ForEach(result.imported, id: \.self) { item in
                             Label(item, systemImage: "checkmark.circle.fill")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .symbolRenderingMode(.multicolor)
+                        }
+                        if !result.skipped.isEmpty {
+                            Text(result.skipped.count == 1 ? "Already in your favourites:" : "Already in your favourites — skipped:")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.top, result.imported.isEmpty ? 0 : 4)
+                            ForEach(result.skipped, id: \.self) { item in
+                                Label(item, systemImage: "minus.circle")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                     .padding(.vertical, 2)
@@ -233,34 +286,36 @@ struct SettingsView: View {
             case .success(let url):
                 importFavourites(from: url)
             case .failure:
-                importResult = ImportResult(message: "Failed to open file.", items: [])
+                importResult = ImportResult(message: "Failed to open file.", imported: [], skipped: [])
             }
         }
     }
 
     private func importFavourites(from url: URL) {
         guard url.startAccessingSecurityScopedResource() else {
-            importResult = ImportResult(message: "Permission denied.", items: [])
+            importResult = ImportResult(message: "Permission denied.", imported: [], skipped: [])
             return
         }
         defer { url.stopAccessingSecurityScopedResource() }
         guard let data = try? Data(contentsOf: url),
-              let imported = try? JSONDecoder().decode(FavouritesExport.self, from: data) else {
-            importResult = ImportResult(message: "Couldn't read file — make sure it's a valid Departure Board export.", items: [])
+              let fileContents = try? JSONDecoder().decode(FavouritesExport.self, from: data) else {
+            importResult = ImportResult(message: "Couldn't read file — make sure it's a valid Departure Board export.", imported: [], skipped: [])
             return
         }
 
         var current = (try? JSONDecoder().decode([String].self, from: favouriteBoardsData)) ?? []
         let existing = Set(current)
-        let new = imported.favourites.filter { !existing.contains($0) && SharedDefaults.parseBoardID($0) != nil }
+        let new = fileContents.favourites.filter { !existing.contains($0) && SharedDefaults.parseBoardID($0) != nil }
+        let alreadyPresent = fileContents.favourites.filter { existing.contains($0) && SharedDefaults.parseBoardID($0) != nil }
         current.append(contentsOf: new)
         if let encoded = try? JSONEncoder().encode(current) {
             favouriteBoardsData = encoded
         }
 
-        let descriptions = new.compactMap { describeBoardID($0) }
+        let importedDescriptions = new.compactMap { describeBoardID($0) }
+        let skippedDescriptions = alreadyPresent.compactMap { describeBoardID($0) }
         let message = new.isEmpty ? "No new favourites found." : "Imported \(new.count) favourite\(new.count == 1 ? "" : "s")."
-        importResult = ImportResult(message: message, items: descriptions)
+        importResult = ImportResult(message: message, imported: importedDescriptions, skipped: skippedDescriptions)
     }
 
     private func describeBoardID(_ id: String) -> String? {

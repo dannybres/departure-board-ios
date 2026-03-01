@@ -110,6 +110,13 @@ struct TimelineIndicator: View {
 
 // MARK: - ServiceDetailView
 
+private struct DetailLoadState {
+    var detail: ServiceDetail? = nil
+    var isLoading: Bool = true
+    var errorMessage: String? = nil
+    var lastUpdate: Date? = nil
+}
+
 struct ServiceDetailView: View {
 
     let service: Service
@@ -117,27 +124,25 @@ struct ServiceDetailView: View {
     @Binding var navigationPath: NavigationPath
     var onNavigateToStation: ((StationDestination) -> Void)?
 
-    @State private var detail: ServiceDetail?
-    @State private var isLoading = true
-    @State private var errorMessage: String?
+    @State private var loadState = DetailLoadState()
     @State private var stationInfoCrs: String?
     @State private var showInfoSheet = false
     @State private var selectedMapPin: String?
-    @State private var lastDetailUpdate: Date? = nil
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.stationNamesSmallCaps) private var stationNamesSmallCaps
 
     var body: some View {
         Group {
-            if isLoading {
+            if loadState.isLoading {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let errorMessage {
+            } else if let errorMessage = loadState.errorMessage {
                 Text(errorMessage)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let detail {
+            } else if let detail = loadState.detail {
                 ScrollViewReader { proxy in
                     List {
                         callingPointsList(detail)
@@ -157,17 +162,7 @@ struct ServiceDetailView: View {
         }
         .navigationTitle(navigationTitleText)
         .toolbar {
-            if let updated = lastDetailUpdate {
-                ToolbarItem(placement: horizontalSizeClass == .regular ? .bottomBar : .topBarTrailing) {
-                    TimelineView(.periodic(from: .now, by: 10)) { context in
-                        Text(ContentView.fuzzyLabel(from: updated, tick: context.date))
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .fixedSize()
-                    }
-                }
-            }
-            if detail != nil {
+            if loadState.detail != nil {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showInfoSheet = true
@@ -200,7 +195,7 @@ struct ServiceDetailView: View {
             })
         }
         .sheet(isPresented: $showInfoSheet) {
-            if let detail {
+            if let detail = loadState.detail {
                 infoSheet(detail)
             }
         }
@@ -386,7 +381,7 @@ struct ServiceDetailView: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(point.name)
-                    .font(.subheadline.weight(.semibold))
+                    .font(Font.subheadline.weight(.semibold).smallCapsIfEnabled(stationNamesSmallCaps))
 
                 HStack(spacing: 8) {
                     if let scheduled = point.scheduled {
@@ -520,7 +515,7 @@ struct ServiceDetailView: View {
     // MARK: - Calling Points (Timeline)
 
     private var subsequentBranches: [[CallingPoint]] {
-        detail?.subsequentCallingPoints ?? []
+        loadState.detail?.subsequentCallingPoints ?? []
     }
 
     private var isSplitService: Bool {
@@ -703,8 +698,7 @@ struct ServiceDetailView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(detail.locationName)
-                    .font(.subheadline)
-                    .bold()
+                    .font(Font.subheadline.bold().smallCapsIfEnabled(stationNamesSmallCaps))
 
                 if let ata = detail.ata {
                     Text(ata == "On time" ? "Arrived on time" : (isTimeFormat(ata) ? "Arrived at \(ata)" : ata))
@@ -741,7 +735,7 @@ struct ServiceDetailView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(point.locationName)
-                    .font(.subheadline)
+                    .font(Font.subheadline.smallCapsIfEnabled(stationNamesSmallCaps))
                     .strikethrough(point.cancelled)
 
                 if point.cancelled {
@@ -786,16 +780,16 @@ struct ServiceDetailView: View {
     }
 
     private func loadDetail(showLoading: Bool = false, silent: Bool = false) async {
-        if showLoading { isLoading = true }
+        if showLoading { loadState.isLoading = true }
         do {
             let result = try await StationViewModel.fetchServiceDetail(serviceId: service.serviceId)
-            detail = result
-            if !silent { errorMessage = nil }
-            lastDetailUpdate = Date()
+            loadState.detail = result
+            if !silent { loadState.errorMessage = nil }
+            loadState.lastUpdate = Date()
         } catch {
-            if !silent { errorMessage = "Failed to load service details" }
+            if !silent { loadState.errorMessage = "Failed to load service details" }
         }
-        isLoading = false
+        loadState.isLoading = false
     }
 
     private func stationFromCache(crs: String, name: String) -> Station? {

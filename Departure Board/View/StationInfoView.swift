@@ -8,15 +8,19 @@
 import SwiftUI
 import MapKit
 
+private struct InfoLoadState {
+    var info: StationInfo? = nil
+    var isLoading: Bool = true
+    var errorMessage: String? = nil
+}
+
 struct StationInfoView: View {
 
     let crs: String
     let onDismiss: () -> Void
     var onNavigate: ((BoardType) -> Void)? = nil
 
-    @State private var info: StationInfo?
-    @State private var isLoading = true
-    @State private var errorMessage: String?
+    @State private var loadState = InfoLoadState()
     @State private var pendingCall: (number: String, url: URL)?
     @AppStorage("mapsProvider") private var mapsProvider: String = "apple"
 
@@ -71,7 +75,7 @@ struct StationInfoView: View {
                     LabeledContent("CRS Code", value: crs)
                         .copyable(crs)
 
-                    if let info {
+                    if let info = loadState.info {
                         if let op = info.stationOperator {
                             LabeledContent("Operator", value: op)
                                 .copyable(op)
@@ -111,15 +115,15 @@ struct StationInfoView: View {
                 }
 
                 // API-loaded content
-                if let info {
+                if let info = loadState.info {
                     stationInfoSections(info)
-                } else if let errorMessage {
+                } else if let errorMessage = loadState.errorMessage {
                     Section {
                         Text(errorMessage)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
-                } else if isLoading {
+                } else if loadState.isLoading {
                     Section {
                         HStack {
                             Spacer()
@@ -131,7 +135,7 @@ struct StationInfoView: View {
                 }
             }
             .tint(.primary)
-            .navigationTitle(info?.name ?? cachedStation?.name ?? crs)
+            .navigationTitle(loadState.info?.name ?? cachedStation?.name ?? crs)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -169,17 +173,17 @@ struct StationInfoView: View {
     }
 
     private var mapLatitude: Double? {
-        if let info, let lat = info.latitude { return lat }
+        if let info = loadState.info, let lat = info.latitude { return lat }
         return cachedStation?.latitude
     }
 
     private var mapLongitude: Double? {
-        if let info, let lon = info.longitude { return lon }
+        if let info = loadState.info, let lon = info.longitude { return lon }
         return cachedStation?.longitude
     }
 
     private var mapName: String {
-        info?.name ?? cachedStation?.name ?? crs
+        loadState.info?.name ?? cachedStation?.name ?? crs
     }
 
     @ViewBuilder
@@ -230,7 +234,7 @@ struct StationInfoView: View {
                             }
                             .copyable(phone)
                         }
-                        Text(cleaned)
+                        richNoteCell(note)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .copyable(cleaned)
@@ -265,24 +269,12 @@ struct StationInfoView: View {
             // Ticket Office
             if info.fares?.ticketOffice != nil {
                 Section {
-                    if let locationNote = info.fares?.ticketOffice?.annotation?.note {
-                        let cleaned = stripHTML(locationNote)
-                        if !cleaned.isEmpty {
-                            Text(cleaned)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .copyable(cleaned)
-                        }
+                    if let locationNote = info.fares?.ticketOffice?.annotation?.note, !stripHTML(locationNote).isEmpty {
+                        richNoteCell(locationNote)
                     }
 
-                    if let advanceNote = info.fares?.ticketOffice?.open?.annotation?.note {
-                        let cleaned = stripHTML(advanceNote)
-                        if !cleaned.isEmpty {
-                            Text(cleaned)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .copyable(cleaned)
-                        }
+                    if let advanceNote = info.fares?.ticketOffice?.open?.annotation?.note, !stripHTML(advanceNote).isEmpty {
+                        richNoteCell(advanceNote)
                     }
 
                     if let ticketOffice = info.fares?.ticketOffice?.open?.dayAndTimeAvailability {
@@ -483,16 +475,11 @@ struct StationInfoView: View {
                 facilityRow("Car Hire", icon: "car.rear", available: info.interchange?.carHire)
                 facilityRow("Cycle Hire", icon: "bicycle", available: info.interchange?.cycleHire)
 
-                if let rrs = info.interchange?.railReplacementServices, let note = rrs.annotation?.note {
-                    let cleaned = stripHTML(note)
-                    if !cleaned.isEmpty {
-                        DisclosureGroup {
-                            Text(cleaned)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } label: {
-                            Label("Rail Replacement", systemImage: "bus.doubledecker")
-                        }
+                if let rrs = info.interchange?.railReplacementServices, let note = rrs.annotation?.note, !stripHTML(note).isEmpty {
+                    DisclosureGroup {
+                        richNoteCell(note)
+                    } label: {
+                        Label("Rail Replacement", systemImage: "bus.doubledecker")
                     }
                 }
 
@@ -559,92 +546,114 @@ struct StationInfoView: View {
                     }
                 }
 
-                if let carPark = info.interchange?.carPark {
-                    let charges = carPark.charges
-                    let hasCharges = charges?.effectiveHourly != nil || charges?.daily != nil || charges?.offPeak != nil || charges?.weekly != nil || charges?.monthly != nil || charges?.annual != nil || charges?.free == true
-                    let hasExtra = hasCharges || carPark.contactDetails?.url != nil || carPark.contactDetails?.primaryTelephoneNumber?.telNationalNumber != nil || carPark.open?.dayAndTimeAvailability != nil
-                    if hasExtra {
-                        DisclosureGroup {
-                            if let op = carPark.carParkOperator {
-                                LabeledContent("Operator", value: op)
+                if let carParks = info.interchange?.carPark {
+                    ForEach(Array(carParks.enumerated()), id: \.offset) { _, carPark in
+                        let charges = carPark.charges
+                        let hasCharges = charges?.effectiveHourly != nil || charges?.daily != nil || charges?.offPeak != nil || charges?.weekly != nil || charges?.monthly != nil || charges?.annual != nil || charges?.free == true
+                        let hasExtra = hasCharges || carPark.contactDetails?.url != nil || carPark.contactDetails?.primaryTelephoneNumber?.telNationalNumber != nil || carPark.open?.dayAndTimeAvailability != nil
+                        if hasExtra {
+                            DisclosureGroup {
+                                if let op = carPark.carParkOperator {
+                                    LabeledContent("Operator", value: op)
+                                        .font(.caption)
+                                        .copyable(op)
+                                }
+                                if let phone = carPark.contactDetails?.primaryTelephoneNumber?.telNationalNumber,
+                                   let url = makePhoneURL(phone) {
+                                    Link(destination: url) {
+                                        LabeledContent("Phone", value: phone)
+                                    }
                                     .font(.caption)
-                                    .copyable(op)
-                            }
-                            if let phone = carPark.contactDetails?.primaryTelephoneNumber?.telNationalNumber,
-                               let url = makePhoneURL(phone) {
-                                Link(destination: url) {
-                                    LabeledContent("Phone", value: phone)
+                                    .copyable(phone)
                                 }
-                                .font(.caption)
-                                .copyable(phone)
-                            }
-                            if let website = carPark.contactDetails?.url,
-                               let url = URL(string: website) {
-                                Link(destination: url) {
-                                    LabeledContent("Website") {
-                                        Text(website)
-                                            .lineLimit(1)
-                                            .truncationMode(.middle)
+                                if let website = carPark.contactDetails?.url,
+                                   let url = URL(string: website) {
+                                    Link(destination: url) {
+                                        LabeledContent("Website") {
+                                            Text(website)
+                                                .lineLimit(1)
+                                                .truncationMode(.middle)
+                                        }
+                                    }
+                                    .font(.caption)
+                                    .copyable(website)
+                                }
+                                if let hours = carPark.open?.dayAndTimeAvailability {
+                                    ForEach(Array(hours.enumerated()), id: \.offset) { _, entry in
+                                        if let days = entry.dayTypes?.description,
+                                           let time = entry.openingHours?.formatted, !time.isEmpty {
+                                            LabeledContent(days, value: time)
+                                                .font(.caption)
+                                                .copyable(time)
+                                        }
                                     }
                                 }
-                                .font(.caption)
-                                .copyable(website)
-                            }
-                            if let hours = carPark.open?.dayAndTimeAvailability {
-                                ForEach(Array(hours.enumerated()), id: \.offset) { _, entry in
-                                    if let days = entry.dayTypes?.description,
-                                       let time = entry.openingHours?.formatted, !time.isEmpty {
-                                        LabeledContent(days, value: time)
+                                if let c = charges {
+                                    if c.free == true {
+                                        LabeledContent("Parking", value: "Free")
                                             .font(.caption)
-                                            .copyable(time)
+                                    }
+                                    if let v = c.effectiveHourly {
+                                        LabeledContent("Per hour", value: v)
+                                            .font(.caption)
+                                            .copyable(v)
+                                    }
+                                    if let v = c.offPeak {
+                                        LabeledContent("Off-peak", value: v)
+                                            .font(.caption)
+                                            .copyable(v)
+                                    }
+                                    if let v = c.daily {
+                                        LabeledContent("Daily", value: v)
+                                            .font(.caption)
+                                            .copyable(v)
+                                    }
+                                    if let v = c.weekly {
+                                        LabeledContent("Weekly", value: v)
+                                            .font(.caption)
+                                            .copyable(v)
+                                    }
+                                    if let v = c.monthly {
+                                        LabeledContent("Monthly", value: v)
+                                            .font(.caption)
+                                            .copyable(v)
+                                    }
+                                    if let v = c.threeMonthly {
+                                        LabeledContent("3 months", value: v)
+                                            .font(.caption)
+                                            .copyable(v)
+                                    }
+                                    if let v = c.annual {
+                                        LabeledContent("Annual", value: v)
+                                            .font(.caption)
+                                            .copyable(v)
+                                    }
+                                    if let note = c.note, !note.isEmpty {
+                                        richNoteCell(note)
+                                    }
+                                }
+                            } label: {
+                                HStack {
+                                    Label("Car Park", systemImage: "car")
+                                    Spacer()
+                                    VStack(alignment: .trailing) {
+                                        if let name = carPark.name {
+                                            Text(name.trimmingCharacters(in: .whitespaces))
+                                        }
+                                        if let spaces = carPark.spaces {
+                                            Text("\(spaces) spaces")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        if let daily = charges?.daily {
+                                            Text(daily + " /day")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
                                     }
                                 }
                             }
-                            if let c = charges {
-                                if c.free == true {
-                                    LabeledContent("Parking", value: "Free")
-                                        .font(.caption)
-                                }
-                                if let v = c.effectiveHourly {
-                                    LabeledContent("Per hour", value: v)
-                                        .font(.caption)
-                                        .copyable(v)
-                                }
-                                if let v = c.offPeak {
-                                    LabeledContent("Off-peak", value: v)
-                                        .font(.caption)
-                                        .copyable(v)
-                                }
-                                if let v = c.daily {
-                                    LabeledContent("Daily", value: v)
-                                        .font(.caption)
-                                        .copyable(v)
-                                }
-                                if let v = c.weekly {
-                                    LabeledContent("Weekly", value: v)
-                                        .font(.caption)
-                                        .copyable(v)
-                                }
-                                if let v = c.monthly {
-                                    LabeledContent("Monthly", value: v)
-                                        .font(.caption)
-                                        .copyable(v)
-                                }
-                                if let v = c.threeMonthly {
-                                    LabeledContent("3 months", value: v)
-                                        .font(.caption)
-                                        .copyable(v)
-                                }
-                                if let v = c.annual {
-                                    LabeledContent("Annual", value: v)
-                                        .font(.caption)
-                                        .copyable(v)
-                                }
-                                if let note = c.note, !note.isEmpty {
-                                    richNoteCell(note)
-                                }
-                            }
-                        } label: {
+                        } else {
                             HStack {
                                 Label("Car Park", systemImage: "car")
                                 Spacer()
@@ -657,26 +666,6 @@ struct StationInfoView: View {
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
-                                    if let daily = charges?.daily {
-                                        Text(daily + " /day")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        HStack {
-                            Label("Car Park", systemImage: "car")
-                            Spacer()
-                            VStack(alignment: .trailing) {
-                                if let name = carPark.name {
-                                    Text(name.trimmingCharacters(in: .whitespaces))
-                                }
-                                if let spaces = carPark.spaces {
-                                    Text("\(spaces) spaces")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
                                 }
                             }
                         }
@@ -712,21 +701,12 @@ struct StationInfoView: View {
                 if info.fares?.smartcardTopup == true {
                     LabeledContent("Smartcard Top-up", value: "Yes")
                 }
-                if let comments = info.fares?.smartcardComments?.note {
-                    let cleaned = stripHTML(comments)
-                    if !cleaned.isEmpty {
-                        Text(cleaned)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .copyable(cleaned)
-                    }
+                if let comments = info.fares?.smartcardComments?.note, !stripHTML(comments).isEmpty {
+                    richNoteCell(comments)
                 }
 
-                if let penalty = info.fares?.penaltyFares?.note {
-                    richText(penalty)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .copyable(stripHTML(penalty))
+                if let penalty = info.fares?.penaltyFares?.note, !stripHTML(penalty).isEmpty {
+                    richNoteCell(penalty)
                 }
             } header: {
                 infoSectionHeader("Fares", icon: "creditcard")
@@ -800,14 +780,8 @@ struct StationInfoView: View {
                 .copyable(website)
             }
 
-            if let hours = service.open?.annotation?.note {
-                let cleaned = stripHTML(hours)
-                if !cleaned.isEmpty {
-                    Text(cleaned)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .copyable(cleaned)
-                }
+            if let hours = service.open?.annotation?.note, !stripHTML(hours).isEmpty {
+                richNoteCell(hours)
             }
 
             if let availability = service.open?.dayAndTimeAvailability {
@@ -1038,12 +1012,12 @@ struct StationInfoView: View {
         do {
             let result = try await StationViewModel.fetchStationInfo(crs: crs)
             print("Decoded \(crs): operator=\(result.stationOperator ?? "nil"), infoSystems=\(result.informationSystems != nil)")
-            info = result
-            errorMessage = nil
+            loadState.info = result
+            loadState.errorMessage = nil
         } catch {
-            errorMessage = "Failed to load station information"
+            loadState.errorMessage = "Failed to load station information"
         }
-        isLoading = false
+        loadState.isLoading = false
     }
 
     private func copyToClipboard(_ text: String) {
