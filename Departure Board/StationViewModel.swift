@@ -23,7 +23,7 @@ class StationViewModel: ObservableObject {
     }
 
     func forceRefresh() async {
-        await fetchStationsInBackground()
+        await fetchStationsInBackground(lowDataAllowed: true)
     }
 
     private func loadCachedStations() {
@@ -34,17 +34,26 @@ class StationViewModel: ObservableObject {
     
     private func refreshIfNeeded() {
         guard StationCache.isExpired() else { return }
-        
+        let isFirstLoad = StationCache.load() == nil
         Task {
-            await fetchStationsInBackground()
+            await fetchStationsInBackground(lowDataAllowed: isFirstLoad)
         }
     }
-    
-    private func fetchStationsInBackground() async {
+
+    private func fetchStationsInBackground(lowDataAllowed: Bool = false) async {
         guard let url = URL(string: "\(APIConfig.baseURL)/stations") else { return }
-        
+
+        let session: URLSession
+        if lowDataAllowed {
+            session = .shared
+        } else {
+            let config = URLSessionConfiguration.default
+            config.allowsConstrainedNetworkAccess = false
+            session = URLSession(configuration: config)
+        }
+
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, _) = try await session.data(from: url)
             let decoded = try JSONDecoder().decode([Station].self, from: data)
             
             StationCache.save(decoded)

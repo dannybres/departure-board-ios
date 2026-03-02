@@ -285,8 +285,22 @@ struct ContentView: View {
         var label: String {
             switch self {
             case .station(_, let bt): return bt.rawValue.capitalized
-            case .filter(let p, _, let fs):
-                return "\(p.boardType.rawValue.capitalized) \(p.filterType == "to" ? "→ \(fs.name)" : "← \(fs.name)")"
+            case .filter(let p, let s, let fs):
+                return "\(p.boardType.rawValue.capitalized) \(p.filterType == "to" ? "\(s.name) → \(fs.name)" : "\(s.name) ← \(fs.name)")"
+            }
+        }
+
+        /// Label shown when the context menu is being displayed for `viewedStation`,
+        /// which may be the board's origin station or the filter (calling point) station.
+        func label(relativeTo viewedCrs: String) -> String {
+            switch self {
+            case .station(_, let bt): return bt.rawValue.capitalized
+            case .filter(let p, let s, let fs):
+                if fs.crsCode == viewedCrs {
+                    return p.filterType == "to" ? "\(s.name) → here" : "here → \(s.name)"
+                } else {
+                    return p.filterType == "to" ? "\(s.name) → \(fs.name)" : "\(s.name) ← \(fs.name)"
+                }
             }
         }
     }
@@ -460,7 +474,7 @@ struct ContentView: View {
             // Trigger split-flap for all changed items. Deferred one run-loop turn so
             // SwiftUI creates SplitFlapText with trigger=0 before we increment to 1 —
             // otherwise onChange never fires on first appearance.
-            if splitFlapRefresh && !changedIDs.isEmpty {
+            if splitFlapRefresh && !changedIDs.isEmpty && !ProcessInfo.processInfo.isLowPowerModeEnabled && !UIAccessibility.isReduceMotionEnabled {
                 Task { @MainActor in
                     for itemID in changedIDs {
                         nextServiceStore.refreshIDs[itemID, default: 0] += 1
@@ -810,7 +824,8 @@ struct ContentView: View {
             .task {
                 await fetchNextServices()
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(60))
+                    let interval: Double = ProcessInfo.processInfo.isLowPowerModeEnabled ? 120 : 60
+                    try? await Task.sleep(for: .seconds(interval))
                     await fetchNextServices()
                 }
             }
@@ -1094,7 +1109,7 @@ struct ContentView: View {
                     Button {
                         navigateToFavouriteEntry(fav)
                     } label: {
-                        Label(fav.label, systemImage: "star.fill")
+                        Label(fav.label(relativeTo: station.crsCode), systemImage: "star.fill")
                     }
                 }
             }

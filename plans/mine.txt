@@ -1,5 +1,0 @@
-quicklook
-watch app
-ipad multi panel
-delay notifications
-train consists on departure board

@@ -32,6 +32,7 @@ struct SettingsView: View {
     @State private var liveServiceExample: LiveServiceExample? = nil
     @State private var themePreviewService: Service? = nil
     @State private var themePreviewIsLoading: Bool = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var exportDocument = FavouritesDocument(data: Data())
     @State private var showingExporter = false
     @State private var showingImporter = false
@@ -90,10 +91,14 @@ struct SettingsView: View {
                     }
                     VStack(alignment: .leading, spacing: 4) {
                         Toggle("Split-Flap Refresh", isOn: $splitFlapRefresh)
-                        Text("Animates departure times with a split-flap board effect whenever live data refreshes. Satisfying to watch, but turn this off if you find the motion distracting or want to reduce battery use.")
+                            .disabled(reduceMotion)
+                        Text(reduceMotion
+                            ? "Unavailable because Reduce Motion is enabled in Accessibility settings."
+                            : "Animates departure times with a split-flap board effect whenever live data refreshes. Satisfying to watch, but turn this off if you find the motion distracting or want to reduce battery use.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    .opacity(reduceMotion ? 0.5 : 1)
                 }
             } header: {
                 Text("Favourites")
@@ -339,10 +344,7 @@ struct SettingsView: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Export saves all your favourite boards to a JSON file you can share or back up. Import reads a file and appends any favourites not already in your list — existing favourites are never overwritten or removed.\n\nYou can also craft a file by hand. Format: {\"favourites\":[\"MAN-dep\",\"LDS-arr\",\"LIV-dep-to-EUS\"]}. Each entry is CRS-dep or CRS-arr, with an optional -to-CRS or -from-CRS suffix for filtered boards.")
-                    HStack(spacing: 12) {
-                        helpLink("backup")
-                        helpLink("json-format")
-                    }
+                    helpLink("backup")
                 }
             }
 

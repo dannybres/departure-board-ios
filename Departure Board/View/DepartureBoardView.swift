@@ -37,6 +37,7 @@ struct DepartureBoardView: View {
     @State private var filter = FilterState()
     @State private var showInfo = false
     @State private var selectedBoard: BoardType = .departures
+    @State private var loadTask: Task<Void, Never>?
     @State private var selectedServiceID: String?
     @State private var stationInfoCrs: String?
     @State private var didAutoNavigate = false
@@ -112,7 +113,7 @@ struct DepartureBoardView: View {
                     if showTimeOffset {
                         Button {
                             timeOffset = nil
-                            Task { await loadBoard(type: selectedBoard) }
+                            scheduleLoad()
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: "clock")
@@ -133,7 +134,7 @@ struct DepartureBoardView: View {
                     if showFilter {
                         Button {
                             filter.station = nil
-                            Task { await loadBoard(type: selectedBoard) }
+                            scheduleLoad()
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: "line.3.horizontal.decrease.circle.fill")
@@ -160,22 +161,6 @@ struct DepartureBoardView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 12) {
-                    Menu {
-                        Picker("Theme", selection: $rowThemeRaw) {
-                            ForEach(RowTheme.allCases, id: \.rawValue) { theme in
-                                Text(theme.displayName).tag(theme.rawValue)
-                            }
-                        }
-                        Divider()
-                        Picker("Vibrancy", selection: $colourVibrancyRaw) {
-                            ForEach(ColourVibrancy.allCases, id: \.rawValue) { vibrancy in
-                                Text(vibrancy.displayName).tag(vibrancy.rawValue)
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "paintpalette")
-                            .foregroundStyle(Theme.brand)
-                    }
                     Button {
                         toggleBoardFavourite()
                     } label: {
@@ -222,7 +207,7 @@ struct DepartureBoardView: View {
                     filter.station = selected
                     filter.showSheet = false
                     SharedDefaults.addRecentFilter(id: SharedDefaults.boardID(crs: station.crsCode, boardType: selectedBoard, filterCrs: selected.crsCode, filterType: filter.type))
-                    Task { await loadBoard(type: selectedBoard) }
+                    scheduleLoad(showLoading: true)
                 }
             )
         }
@@ -257,9 +242,7 @@ struct DepartureBoardView: View {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             timeOffset = nil
             filter.station = nil
-            Task {
-                await loadBoard(type: selectedBoard, showLoading: true)
-            }
+            scheduleLoad(showLoading: true)
         }
         .task {
             await loadBoard(type: selectedBoard, showLoading: true)
@@ -274,9 +257,10 @@ struct DepartureBoardView: View {
                 }
             }
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
+                let interval: Double = ProcessInfo.processInfo.isLowPowerModeEnabled ? 120 : 60
+                try? await Task.sleep(for: .seconds(interval))
                 guard !Task.isCancelled else { break }
-                try? await loadBoard(type: selectedBoard, silent: true)
+                scheduleLoad(silent: true)
             }
         }
     }
@@ -292,7 +276,7 @@ struct DepartureBoardView: View {
                     let current = timeOffset ?? 0
                     let newOffset = max(current - 30, -120)
                     timeOffset = newOffset
-                    Task { await loadBoard(type: selectedBoard) }
+                    scheduleLoad(debounce: true)
                 } label: {
                     HStack {
                         Spacer()
@@ -374,7 +358,7 @@ struct DepartureBoardView: View {
                 Button {
                     let current = timeOffset ?? 0
                     timeOffset = current + 30
-                    Task { await loadBoard(type: selectedBoard) }
+                    scheduleLoad(debounce: true)
                 } label: {
                     HStack {
                         Spacer()
@@ -398,12 +382,18 @@ struct DepartureBoardView: View {
             }
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
-        } else if let errorMessage = boardLoad.errorMessage {
-            Text(errorMessage)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding()
-                .frame(maxWidth: .infinity)
+        } else if boardLoad.errorMessage != nil {
+            VStack(spacing: 12) {
+                Text(boardLoad.errorMessage ?? "")
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Button("Try Again") {
+                    scheduleLoad(showLoading: true)
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding()
+            .frame(maxWidth: .infinity)
         } else if !boardLoad.isLoading {
             if let filterStation = filter.station {
                 VStack(spacing: 12) {
@@ -411,7 +401,7 @@ struct DepartureBoardView: View {
                         .foregroundStyle(.secondary)
                     Button("Clear Filter") {
                         self.filter.station = nil
-                        Task { await loadBoard(type: selectedBoard) }
+                        scheduleLoad()
                     }
                     .foregroundStyle(Theme.brand)
                 }
@@ -492,7 +482,7 @@ struct DepartureBoardView: View {
                         filter.station = destStation
                         filter.type = "to"
                         SharedDefaults.addRecentFilter(id: SharedDefaults.boardID(crs: station.crsCode, boardType: selectedBoard, filterCrs: destination.crs, filterType: "to"))
-                        Task { await loadBoard(type: selectedBoard) }
+                        scheduleLoad(showLoading: true)
                     } label: {
                         Label("Filter to \(destination.locationName)", systemImage: "line.3.horizontal.decrease.circle")
                     }
@@ -593,6 +583,28 @@ struct DepartureBoardView: View {
         return offsetString
     }
 
+    private static let boardErrorMessages = [
+        "This service has been delayed — by a network error.",
+        "We're sorry for the inconvenience. Live data has failed to arrive.",
+        "The 12:00 to your screen has been cancelled due to a network fault.",
+        "Signal failure. Live departures couldn't get through.",
+        "Leaves on the line. Or possibly a network error.",
+        "This train is currently being held at a red light.",
+    ]
+
+    /// Cancel any in-flight load and start a new one. Pass `debounce` for rapid-fire
+    /// triggers (e.g. time offset buttons) so we don't fire on every tap.
+    private func scheduleLoad(showLoading: Bool = false, silent: Bool = false, debounce: Bool = false) {
+        loadTask?.cancel()
+        loadTask = Task {
+            if debounce {
+                try? await Task.sleep(for: .milliseconds(400))
+                guard !Task.isCancelled else { return }
+            }
+            await loadBoard(type: selectedBoard, showLoading: showLoading, silent: silent)
+        }
+    }
+
     private func loadBoard(type: BoardType, showLoading: Bool = false, silent: Bool = false) async {
         if showLoading { boardLoad.isLoading = true }
         do {
@@ -604,7 +616,7 @@ struct DepartureBoardView: View {
             if !silent { UINotificationFeedbackGenerator().notificationOccurred(.success) }
             boardLoad.lastUpdate = Date()
         } catch {
-            if !silent { boardLoad.errorMessage = "Failed to load board" }
+            if !silent { boardLoad.errorMessage = DepartureBoardView.boardErrorMessages.randomElement()! }
             if !silent { UINotificationFeedbackGenerator().notificationOccurred(.error) }
         }
         boardLoad.isLoading = false

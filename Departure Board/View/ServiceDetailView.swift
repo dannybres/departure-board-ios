@@ -175,7 +175,8 @@ struct ServiceDetailView: View {
         .task {
             await loadDetail(showLoading: true)
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
+                let interval: Double = ProcessInfo.processInfo.isLowPowerModeEnabled ? 120 : 60
+                try? await Task.sleep(for: .seconds(interval))
                 guard !Task.isCancelled else { break }
                 await loadDetail(silent: true)
             }
