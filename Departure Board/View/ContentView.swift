@@ -458,13 +458,10 @@ struct ContentView: View {
             }
             nextServiceStore.lastUpdate = Date()
 
-            // Trigger split-flap animation for changed items one at a time
+            // Trigger split-flap animation for all changed items simultaneously.
             if splitFlapRefresh && !changedIDs.isEmpty {
-                Task { @MainActor in
-                    for (index, itemID) in changedIDs.enumerated() {
-                        if index > 0 { try? await Task.sleep(for: .seconds(2)) }
-                        nextServiceStore.refreshIDs[itemID, default: 0] += 1
-                    }
+                for itemID in changedIDs {
+                    nextServiceStore.refreshIDs[itemID, default: 0] += 1
                 }
             }
         } catch {
@@ -802,7 +799,7 @@ struct ContentView: View {
             .environment(\.editMode, isEditingFavourites ? .constant(.active) : .constant(.inactive))
             .refreshable {
                 viewModel.reloadFromCache()
-                Task { await fetchNextServices() }
+                await fetchNextServices()
             }
             .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
                 tickDate = Date()

@@ -37,7 +37,8 @@ enum SharedDefaults {
         static let cachedStations    = "cachedStations"
         static let stationsLastRefresh = "stationsLastRefresh"
         static let didMigrateToSharedSuite = "didMigrateToSharedSuite"
-        static let operatorColourStyle = "operatorColourStyle"
+        static let rowTheme      = "rowTheme"
+        static let colourVibrancy = "colourVibrancy"
     }
 
     // MARK: - ID encoding / decoding

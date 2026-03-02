@@ -42,13 +42,12 @@ struct DepartureBoardView: View {
     @State private var didAutoNavigate = false
     @State private var timeOffset: Int? = nil
     @State private var showNrccMessages = false
-    @State private var tickDate = Date()
     @AppStorage(SharedDefaults.Keys.favouriteBoards, store: SharedDefaults.shared) private var favouriteBoardsData: Data = Data()
-    @AppStorage(SharedDefaults.Keys.operatorColourStyle) private var operatorColourStyleRaw: String = OperatorColourStyle.none.rawValue
+    @AppStorage(SharedDefaults.Keys.rowTheme) private var rowThemeRaw: String = RowTheme.none.rawValue
+    @AppStorage(SharedDefaults.Keys.colourVibrancy) private var colourVibrancyRaw: String = ColourVibrancy.vibrant.rawValue
 
-    private var operatorColourStyle: OperatorColourStyle {
-        OperatorColourStyle(rawValue: operatorColourStyleRaw) ?? .none
-    }
+    private var rowTheme: RowTheme { RowTheme(rawValue: rowThemeRaw) ?? .none }
+    private var colourVibrancy: ColourVibrancy { ColourVibrancy(rawValue: colourVibrancyRaw) ?? .vibrant }
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.stationNamesSmallCaps) private var stationNamesSmallCaps
 
@@ -161,6 +160,22 @@ struct DepartureBoardView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 12) {
+                    Menu {
+                        Picker("Theme", selection: $rowThemeRaw) {
+                            ForEach(RowTheme.allCases, id: \.rawValue) { theme in
+                                Text(theme.displayName).tag(theme.rawValue)
+                            }
+                        }
+                        Divider()
+                        Picker("Vibrancy", selection: $colourVibrancyRaw) {
+                            ForEach(ColourVibrancy.allCases, id: \.rawValue) { vibrancy in
+                                Text(vibrancy.displayName).tag(vibrancy.rawValue)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "paintpalette")
+                            .foregroundStyle(Theme.brand)
+                    }
                     Button {
                         toggleBoardFavourite()
                     } label: {
@@ -264,9 +279,6 @@ struct DepartureBoardView: View {
                 try? await loadBoard(type: selectedBoard, silent: true)
             }
         }
-        .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
-            tickDate = Date()
-        }
     }
 
     // MARK: - Service List Rows
@@ -323,20 +335,27 @@ struct DepartureBoardView: View {
                 .listRowBackground(Color.orange.opacity(0.08))
             }
 
-            // Train services — header always shown
+            // Train services
             if let trains = boardLoad.board?.trainServices, !trains.isEmpty {
-                Section {
-                    HStack {
+                Section {} header: {
+                    HStack(spacing: 6) {
                         Label("Trains", systemImage: "tram.fill")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.caption.weight(.semibold))
                             .foregroundStyle(Theme.brand)
-                        if let label = fuzzyUpdateLabel {
-                            Text(label)
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
+                            .textCase(nil)
+                        if let updated = boardLoad.lastUpdate {
+                            TimelineView(.periodic(from: updated, by: 10)) { ctx in
+                                HStack(spacing: 3) {
+                                    Image(systemName: "clock")
+                                        .font(.system(size: 9, weight: .medium))
+                                    Text(ContentView.fuzzyLabel(from: updated, tick: ctx.date))
+                                        .font(.caption2)
+                                }
+                            }
+                            .foregroundStyle(Color(.secondaryLabel).opacity(0.65))
+                            .textCase(nil)
                         }
                     }
-                    .listRowBackground(Color.clear)
                 }
 
                 ForEach(Array(trains.enumerated()), id: \.element.id) { index, service in
@@ -344,14 +363,14 @@ struct DepartureBoardView: View {
                 }
             }
 
-            // Bus services — header only shown when both types are present
+            // Bus services — header only shown when both types present
             if let buses = boardLoad.board?.busServices, !buses.isEmpty {
                 if hasTrains {
-                    Section {
+                    Section {} header: {
                         Label("Buses", systemImage: "bus.fill")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.caption.weight(.semibold))
                             .foregroundStyle(Theme.brand)
-                            .listRowBackground(Color.clear)
+                            .textCase(nil)
                     }
                 }
 
@@ -419,45 +438,32 @@ struct DepartureBoardView: View {
 
     @ViewBuilder
     private func serviceRow(_ service: Service, index: Int = 0) -> some View {
-        let effectiveStyle: OperatorColourStyle = {
-            if operatorColourStyle == .preview {
-                switch index % 4 {
-                case 0: return .subtle
-                case 1: return .colourful
-                case 2: return .gradient
-                default: return .vibrant
-                }
-            }
-            return operatorColourStyle
-        }()
         let colours = OperatorColours.entry(for: service.operatorCode)
         let isHighlighted = highlightedServiceID == service.serviceId
 
         NavigationLink(value: service) {
-            DepartureRow(service: service, boardType: selectedBoard, operatorColourStyle: effectiveStyle, operatorColours: colours)
+            DepartureRow(service: service, boardType: selectedBoard, rowTheme: rowTheme, colourVibrancy: colourVibrancy, operatorColours: colours)
         }
         .contextMenu { serviceContextMenu(service) }
-        .listRowBackground(rowBackground(style: effectiveStyle, colours: colours, isHighlighted: isHighlighted))
+        .listRowBackground(rowBackground(theme: rowTheme, vibrancy: colourVibrancy, colours: colours, isHighlighted: isHighlighted))
     }
 
     @ViewBuilder
-    private func rowBackground(style: OperatorColourStyle, colours: OperatorColours.Entry, isHighlighted: Bool) -> some View {
+    private func rowBackground(theme: RowTheme, vibrancy: ColourVibrancy, colours: OperatorColours.Entry, isHighlighted: Bool) -> some View {
         if isHighlighted {
             Theme.brandSubtle
         } else {
-            switch style {
+            switch theme {
             case .none:
                 Color(.secondarySystemGroupedBackground)
-            case .subtle:
-                SubtleOperatorBackground(colour: colours.primary)
-            case .colourful:
-                colours.primary.opacity(0.22)
-            case .gradient:
-                GradientOperatorBackground(primary: colours.primary, secondary: colours.secondary)
-            case .vibrant:
-                colours.primary
-            case .preview:
+            case .trackline:
+                TracklineBackground(colour: colours.primary, vibrancy: vibrancy)
+            case .signalRail, .timeTile, .platformPulse:
                 Color(.secondarySystemGroupedBackground)
+            case .timePanel:
+                TimePanelBackground(colour: colours.primary, vibrancy: vibrancy)
+            case .boardWash:
+                colours.primary.opacity(vibrancy.opacity)
             }
         }
     }
@@ -568,11 +574,6 @@ struct DepartureBoardView: View {
 
     // MARK: - Helper Methods
 
-    private var fuzzyUpdateLabel: String? {
-        guard let updated = boardLoad.lastUpdate else { return nil }
-        return ContentView.fuzzyLabel(from: updated, tick: tickDate)
-    }
-
     private var filterChipLabel: String {
         let name = boardLoad.board?.filterLocationName ?? filter.station?.name ?? ""
         return filter.type == "to" ? "Calling at \(name)" : "From \(name)"
@@ -615,36 +616,32 @@ struct DepartureRow: View {
 
     let service: Service
     let boardType: BoardType
-    var operatorColourStyle: OperatorColourStyle = .none
+    var rowTheme: RowTheme = .none
+    var colourVibrancy: ColourVibrancy = .vibrant
     var operatorColours: OperatorColours.Entry = OperatorColours.entry(for: "ZZ")
     @Environment(\.colorScheme) private var colorScheme
 
-    private var isVibrant: Bool { operatorColourStyle == .vibrant }
-    private var isGradient: Bool { operatorColourStyle == .gradient }
-    private var isSubtle: Bool { operatorColourStyle == .subtle }
+    /// Black or white — whichever contrasts against the operator's primary colour.
+    private var contrastColour: Color {
+        operatorColours.primaryIsLight ? Color.black : Color.white
+    }
 
-    /// Colour for text that sits on the solid coloured part of the background.
-    /// Vibrant/gradient/subtle all put primary-colour behind the time; vibrant also covers the station name.
+    /// True when the time text sits on a solid coloured background (timeTile, timePanel, boardWash — vibrant only).
+    private var timeIsOnColour: Bool {
+        colourVibrancy == .vibrant && (rowTheme == .timeTile || rowTheme == .timePanel || rowTheme == .boardWash)
+    }
+
+    /// True when the whole row background is solid operator colour (boardWash vibrant only).
+    private var rowIsOnColour: Bool {
+        rowTheme == .boardWash && colourVibrancy == .vibrant
+    }
+
     private var onPrimaryTextColour: Color {
-        switch operatorColourStyle {
-        case .vibrant, .gradient:
-            return operatorColours.secondary
-        case .subtle:
-            return operatorColours.primaryIsLight ? Color.black : Color.white
-        default:
-            return Color(.label)
-        }
+        timeIsOnColour ? contrastColour : Color(.label)
     }
 
     private var stationNameColour: Color {
-        switch operatorColourStyle {
-        case .vibrant:
-            return operatorColours.secondary
-        case .subtle, .gradient:
-            return operatorColours.primaryIsLight ? Color.black : Color.white
-        default:
-            return Color(.label)
-        }
+        rowIsOnColour ? contrastColour : Color(.label)
     }
 
     private var locations: [Location] {
@@ -665,12 +662,33 @@ struct DepartureRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            Text(service.scheduled)
+            // Time text — with optional tile background
+            let timeView = Text(service.scheduled)
                 .font(Theme.timeFont)
                 .lineLimit(1)
                 .fixedSize()
                 .frame(width: 44, alignment: .leading)
                 .foregroundStyle(onPrimaryTextColour)
+
+            if rowTheme == .timeTile {
+                timeView
+                    .padding(.vertical, 2)
+                    .padding(.horizontal, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(operatorColours.primary.opacity(colourVibrancy.opacity))
+                    )
+            } else {
+                timeView
+            }
+
+            // Signal Rail divider between time and content
+            if rowTheme == .signalRail {
+                Rectangle()
+                    .fill(operatorColours.primary.opacity(colourVibrancy.opacity))
+                    .frame(width: 1.5)
+                    .padding(.vertical, -4)
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -705,16 +723,35 @@ struct DepartureRow: View {
 
             Spacer()
 
-            if let platform = service.platform {
+            if rowTheme == .platformPulse, service.platform == nil {
+                // No platform allocated yet — larger dot so it's clearly intentional
+                Circle()
+                    .fill(operatorColours.primary.opacity(colourVibrancy.opacity))
+                    .frame(width: 14, height: 14)
+            } else if let platform = service.platform {
+                let isPulse = rowTheme == .platformPulse
+                let badgeBg: Color = rowIsOnColour
+                    ? contrastColour.opacity(0.25)
+                    : isPulse
+                        ? operatorColours.primary.opacity(colourVibrancy.opacity)
+                        : (colorScheme == .dark ? Theme.platformBadgeDark : Theme.platformBadge)
+                // Text colour must always be legible against its specific badge background.
+                // — boardWash vibrant row: badge bg is semi-transparent contrast, text = contrast
+                // — platformPulse vibrant: bg is full primary → WCAG black/white
+                // — platformPulse tinted: bg is 22% primary over cell bg (light in light mode,
+                //   dark in dark mode) → Color(.label) adapts automatically
+                // — default badge: Theme colours are already paired correctly with dark/light text
+                let badgeFg: Color = rowIsOnColour
+                    ? contrastColour
+                    : isPulse
+                        ? (colourVibrancy == .vibrant ? contrastColour : Color(.label))
+                        : (colorScheme == .dark ? Color.black : Color.white)
                 Text(platform.uppercased() == "BUS" ? platform : "Plat \(platform)")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(isVibrant ? operatorColours.primary : (colorScheme == .dark ? .black : .white))
+                    .foregroundStyle(badgeFg)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(
-                        isVibrant ? operatorColours.secondary : (colorScheme == .dark ? Theme.platformBadgeDark : Theme.platformBadge),
-                        in: RoundedRectangle(cornerRadius: 6)
-                    )
+                    .background(badgeBg, in: RoundedRectangle(cornerRadius: 6))
             }
         }
         .padding(.vertical, Theme.rowPadding)
@@ -736,13 +773,9 @@ struct DepartureRow: View {
     /// On a dark primary → brighten toward white. On a light primary → darken toward black.
     /// On no special background → return as-is.
     private func adaptedStatusColor(_ base: Color) -> Color {
-        guard isVibrant || isSubtle || isGradient else { return base }
-        if operatorColours.primaryIsLight {
-            // Bright/light background — darken the status colour for contrast.
-            return base.mix(with: .black, by: 0.35)
-        } else {
-            // Dark background — lighten the status colour so it pops.
-            return base.mix(with: .white, by: 0.45)
-        }
+        guard rowIsOnColour else { return base }
+        return operatorColours.primaryIsLight
+            ? base.mix(with: .black, by: 0.35)
+            : base.mix(with: .white, by: 0.45)
     }
 }

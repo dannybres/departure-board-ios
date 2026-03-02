@@ -19,7 +19,8 @@ struct SettingsView: View {
     @AppStorage("nextServiceTappable") var nextServiceTappable: Bool = false
     @AppStorage("splitFlapRefresh") var splitFlapRefresh: Bool = false
     @AppStorage("stationNamesSmallCaps") var stationNamesSmallCaps: Bool = false
-    @AppStorage(SharedDefaults.Keys.operatorColourStyle) var operatorColourStyleRaw: String = OperatorColourStyle.none.rawValue
+    @AppStorage(SharedDefaults.Keys.rowTheme) var rowThemeRaw: String = RowTheme.none.rawValue
+    @AppStorage(SharedDefaults.Keys.colourVibrancy) var colourVibrancyRaw: String = ColourVibrancy.vibrant.rawValue
     @AppStorage("autoLoadMode") var autoLoadMode: String = "off"
     @AppStorage("autoLoadDistanceMiles") var autoLoadDistanceMiles: Int = 2
     @AppStorage(SharedDefaults.Keys.favouriteBoards, store: SharedDefaults.shared) private var favouriteBoardsData: Data = Data()
@@ -29,6 +30,8 @@ struct SettingsView: View {
     @State private var showDebug = false
     @State private var lastRefresh: Date? = StationCache.lastRefreshDate()
     @State private var liveServiceExample: LiveServiceExample? = nil
+    @State private var themePreviewService: Service? = nil
+    @State private var themePreviewIsLoading: Bool = false
     @State private var exportDocument = FavouritesDocument(data: Data())
     @State private var showingExporter = false
     @State private var showingImporter = false
@@ -132,30 +135,50 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Picker("Operator Colours", selection: $operatorColourStyleRaw) {
-                        ForEach(OperatorColourStyle.allCases, id: \.rawValue) { style in
-                            Text(style.displayName).tag(style.rawValue)
+                    Picker("Row Theme", selection: $rowThemeRaw) {
+                        ForEach(RowTheme.allCases, id: \.rawValue) { theme in
+                            Text(theme.displayName).tag(theme.rawValue)
                         }
                     }
                     Group {
-                        switch OperatorColourStyle(rawValue: operatorColourStyleRaw) ?? .none {
+                        switch RowTheme(rawValue: rowThemeRaw) ?? .none {
                         case .none:
                             Text("No operator colour coding. All rows use the standard background.")
-                        case .subtle:
-                            Text("A thin coloured strip on the left edge of each row shows the operator's brand colour — understated but easy to spot.")
-                        case .colourful:
-                            Text("Each row gets a soft tint of the operator's brand colour as its background — colourful without being overwhelming.")
-                        case .gradient:
-                            Text("A gradient sweeps from the operator's brand colour on the left to the cell background on the right — the time sits in full colour, the rest fades naturally.")
-                        case .vibrant:
-                            Text("Rows are fully filled with the operator's brand colour. Bold and eye-catching.")
-                        case .preview:
-                            Text("Cycles through all four styles on consecutive rows so you can compare them at once.")
+                        case .trackline:
+                            Text("A 3 pt stripe on the leading edge of each row shows the operator's brand colour — minimal and unobtrusive.")
+                        case .signalRail:
+                            Text("A thin vertical divider between the time and destination columns is coloured with the operator's brand colour.")
+                        case .timeTile:
+                            Text("The time text sits inside a small coloured rounded rectangle — just a pop of brand colour around the departure time.")
+                        case .timePanel:
+                            Text("A ~66 pt coloured panel sits behind the time column only, echoing a traditional departure board style. Related to Time Tile but broader.")
+                        case .platformPulse:
+                            Text("The platform badge takes on the operator's brand colour. When no platform is allocated yet, a small coloured dot appears instead.")
+                        case .boardWash:
+                            Text("The entire row background is filled with the operator's brand colour. Bold and eye-catching.")
                         }
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("Colour Vibrancy", selection: $colourVibrancyRaw) {
+                        ForEach(ColourVibrancy.allCases, id: \.rawValue) { vibrancy in
+                            Text(vibrancy.displayName).tag(vibrancy.rawValue)
+                        }
+                    }
+                    Group {
+                        switch ColourVibrancy(rawValue: colourVibrancyRaw) ?? .vibrant {
+                        case .vibrant:
+                            Text("Operator colours are shown at full opacity — vivid and high-contrast.")
+                        case .tinted:
+                            Text("Operator colours are shown at reduced opacity (22%) — subtle and easy on the eye.")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                themePreviewRow()
             } header: {
                 Text("Appearance")
             } footer: {
@@ -483,6 +506,90 @@ struct SettingsView: View {
             return "\(stationName) \(bt) \(arrow) \(filterName)"
         }
         return "\(stationName) · \(bt)"
+    }
+
+    @ViewBuilder
+    private func themePreviewRow() -> some View {
+        let theme = RowTheme(rawValue: rowThemeRaw) ?? .none
+        let vibrancy = ColourVibrancy(rawValue: colourVibrancyRaw) ?? .vibrant
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Preview")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if themePreviewIsLoading {
+                    ProgressView().scaleEffect(0.75)
+                } else {
+                    Button {
+                        Task { await fetchRandomThemePreview() }
+                    } label: {
+                        Label("Shuffle", systemImage: "shuffle")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(Theme.brand)
+                    .disabled(viewModel.stations.isEmpty)
+                }
+            }
+            if let service = themePreviewService {
+                let colours = OperatorColours.entry(for: service.operatorCode)
+                DepartureRow(
+                    service: service,
+                    boardType: .departures,
+                    rowTheme: theme,
+                    colourVibrancy: vibrancy,
+                    operatorColours: colours
+                )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background { themePreviewBackground(theme: theme, vibrancy: vibrancy, colours: colours) }
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                Text(service.operator)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            } else if !themePreviewIsLoading {
+                Text("No preview available — check your connection.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .task {
+            if themePreviewService == nil {
+                await fetchRandomThemePreview()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func themePreviewBackground(theme: RowTheme, vibrancy: ColourVibrancy, colours: OperatorColours.Entry) -> some View {
+        switch theme {
+        case .none:
+            Color(.secondarySystemGroupedBackground)
+        case .trackline:
+            TracklineBackground(colour: colours.primary, vibrancy: vibrancy)
+        case .signalRail, .timeTile, .platformPulse:
+            Color(.secondarySystemGroupedBackground)
+        case .timePanel:
+            TimePanelBackground(colour: colours.primary, vibrancy: vibrancy)
+        case .boardWash:
+            colours.primary.opacity(vibrancy.opacity)
+        }
+    }
+
+    private func fetchRandomThemePreview() async {
+        themePreviewIsLoading = true
+        defer { themePreviewIsLoading = false }
+        let stations = viewModel.stations
+        guard !stations.isEmpty else { return }
+        for _ in 0..<6 {
+            guard let station = stations.randomElement() else { continue }
+            guard let board = try? await StationViewModel.fetchBoard(for: station.crsCode, numRows: 5) else { continue }
+            let services = (board.trainServices ?? []).filter { $0.operatorCode != "ZZ" }
+            if let service = services.randomElement() {
+                themePreviewService = service
+                return
+            }
+        }
     }
 
     @ViewBuilder
