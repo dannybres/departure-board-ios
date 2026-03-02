@@ -252,6 +252,9 @@ struct ContentView: View {
     @AppStorage("autoLoadDistanceMiles") private var autoLoadDistanceMiles: Int = 2
     @State private var nextServiceStore = NextServiceStore()
     @State private var tickDate = Date()
+    @AppStorage("locationPromptSeen") private var locationPromptSeen = false
+    @State private var showLocationPrompt = false
+    @State private var showLocationDenied = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var selectedStation: StationDestination?
     @State private var selectedService: Service?
@@ -588,6 +591,15 @@ struct ContentView: View {
 
     private var nearbyStations: [Station] { cachedNearbyStations }
 
+    private var locationDenied: Bool {
+        let status = locationManager.authorizationStatus
+        if status == .denied || status == .restricted { return true }
+        // Also show if they skipped our in-app prompt — iOS status stays .notDetermined
+        // but we know they've been asked and chose not to allow.
+        if locationPromptSeen && status == .notDetermined { return true }
+        return false
+    }
+
     private func updateNearbyStations() {
         guard let userLocation = locationManager.userLocation, !viewModel.stations.isEmpty else {
             cachedNearbyStations = []
@@ -636,8 +648,38 @@ struct ContentView: View {
             stationListView
                 .navigationTitle("Departure Board")
                 .toolbar {
+                    if locationDenied {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button { showLocationDenied = true } label: {
+                                Image(systemName: "location.slash.fill")
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button { showSettings = true } label: { Image(systemName: "gearshape") }
+                    }
+                }
+                .sheet(isPresented: $showLocationDenied) {
+                    LocationDeniedSheet {
+                        showLocationDenied = false
+                    }
+                    .presentationDetents([.medium])
+                }
+                .sheet(isPresented: $showLocationPrompt) {
+                    LocationPermissionPrompt {
+                        locationPromptSeen = true
+                        showLocationPrompt = false
+                        locationManager.requestPermission()
+                    } onSkip: {
+                        locationPromptSeen = true
+                        showLocationPrompt = false
+                    }
+                    .presentationDetents([.medium])
+                }
+                .onAppear {
+                    if !locationPromptSeen && locationManager.shouldShowPermissionPrompt {
+                        showLocationPrompt = true
                     }
                 }
                 .sheet(isPresented: $showSettings) {
@@ -1549,5 +1591,81 @@ struct ContentView: View {
                 .contextMenu { filterContextMenu(for: parsed) }
             }
         }
+    }
+}
+
+// MARK: - Location Denied Sheet
+
+struct LocationDeniedSheet: View {
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer()
+            Image(systemName: "location.slash.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(.red)
+            VStack(spacing: 8) {
+                Text("Location Access Denied")
+                    .font(.title2.bold())
+                Text("Nearby stations and auto-load won't work without location access.\n\nTo enable it, go to Settings and allow location access for Departure Board.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            Spacer()
+            Button {
+                UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
+                onDismiss()
+            } label: {
+                Text("Open Settings")
+                    .font(.body.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.red)
+            .padding(.bottom)
+        }
+        .padding(.horizontal, 32)
+    }
+}
+
+// MARK: - Location Permission Prompt
+
+struct LocationPermissionPrompt: View {
+    let onAllow: () -> Void
+    let onSkip: () -> Void
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer()
+            Image(systemName: "location.circle.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(Theme.brand)
+            VStack(spacing: 8) {
+                Text("Nearby Stations")
+                    .font(.title2.bold())
+                Text("Departure Board uses your location to show nearby stations and automatically open your closest favourite board when you launch the app.\n\nYour location is never stored or shared.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            Spacer()
+            VStack(spacing: 12) {
+                Button(action: onAllow) {
+                    Text("Allow Location Access")
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.brand)
+                Button("Not Now", action: onSkip)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.bottom)
+        }
+        .padding(.horizontal, 32)
     }
 }

@@ -12,6 +12,7 @@ import CoreLocation
 class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     @Published var userLocation: CLLocation?
+    @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
 
     private let manager = CLLocationManager()
 
@@ -19,8 +20,23 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyReduced
+        // Only auto-request if permission was already granted (i.e. returning user).
+        // First-time users are prompted via requestPermissionIfNeeded() after seeing the in-app prompt.
+        let status = manager.authorizationStatus
+        authorizationStatus = status
+        if status == .authorizedWhenInUse || status == .authorizedAlways {
+            manager.requestLocation()
+        }
+    }
+
+    /// Returns true if we should show the in-app prompt before asking iOS.
+    var shouldShowPermissionPrompt: Bool {
+        manager.authorizationStatus == .notDetermined
+    }
+
+    /// Called after the user taps through the in-app explanation sheet.
+    func requestPermission() {
         manager.requestWhenInUseAuthorization()
-        manager.requestLocation()
     }
 
     func refresh() {
@@ -39,7 +55,11 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
+        let status = manager.authorizationStatus
+        Task { @MainActor in
+            authorizationStatus = status
+        }
+        if status == .authorizedWhenInUse || status == .authorizedAlways {
             manager.requestLocation()
         }
     }

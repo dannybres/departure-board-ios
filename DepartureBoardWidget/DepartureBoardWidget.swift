@@ -137,6 +137,8 @@ struct DepartureEntry: TimelineEntry {
         let filterCrs: String?
         let filterType: String?
         let services: [WidgetService]
+        var errorMessage: String? = nil
+        var error: Bool { errorMessage != nil }
     }
 
     struct WidgetService: Identifiable {
@@ -297,7 +299,8 @@ private func fetchEntry(boards: [BoardConfig], servicesPerStation: Int) async ->
             }
             stationDepartures.append(.init(name: name, crs: board.crs, filterLabel: filterLabel, filterCrs: board.filterCrs, filterType: board.filterType, services: Array(services)))
         } catch {
-            stationDepartures.append(.init(name: name, crs: board.crs, filterLabel: filterLabel, filterCrs: board.filterCrs, filterType: board.filterType, services: []))
+            let message = widgetErrorMessages.randomElement()!
+            stationDepartures.append(.init(name: name, crs: board.crs, filterLabel: filterLabel, filterCrs: board.filterCrs, filterType: board.filterType, services: [], errorMessage: message))
         }
     }
 
@@ -326,6 +329,14 @@ private func fetchBoard(crs: String, boardType: BoardType, numRows: Int, filterC
     }
     return try JSONDecoder().decode(DepartureBoard.self, from: data)
 }
+
+private let widgetErrorMessages = [
+    "Delayed by a network error.",
+    "Signal failure. Data couldn't get through.",
+    "Leaves on the line. Or a network error.",
+    "This service has been cancelled.",
+    "Currently held at a red light.",
+]
 
 private func isTimeFormat(_ text: String) -> Bool {
     text.range(of: #"^\d{2}:\d{2}$"#, options: .regularExpression) != nil
@@ -473,7 +484,13 @@ struct StationBlock: View {
                 }
             }
 
-            if station.services.isEmpty {
+            if let message = station.errorMessage {
+                Text(message)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if station.services.isEmpty {
                 Text("No services")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -571,6 +588,7 @@ struct SingleStationWidget: Widget {
         .configurationDisplayName("Station Board")
         .description("Departures or arrivals from a station, with optional filter.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+        .promptsForUserConfiguration()
     }
 }
 
@@ -585,5 +603,6 @@ struct DualStationWidget: Widget {
         .configurationDisplayName("Two Boards")
         .description("Boards from two chosen stations.")
         .supportedFamilies([.systemMedium, .systemLarge])
+        .promptsForUserConfiguration()
     }
 }
