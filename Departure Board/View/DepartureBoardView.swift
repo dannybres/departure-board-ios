@@ -343,18 +343,7 @@ struct DepartureBoardView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(Theme.brand)
                             .textCase(nil)
-                        if let updated = boardLoad.lastUpdate {
-                            TimelineView(.periodic(from: updated, by: 10)) { ctx in
-                                HStack(spacing: 3) {
-                                    Image(systemName: "clock")
-                                        .font(.system(size: 9, weight: .medium))
-                                    Text(ContentView.fuzzyLabel(from: updated, tick: ctx.date))
-                                        .font(.caption2)
-                                }
-                            }
-                            .foregroundStyle(Color(.secondaryLabel).opacity(0.65))
-                            .textCase(nil)
-                        }
+                        updatedLabel
                     }
                 }
 
@@ -363,14 +352,15 @@ struct DepartureBoardView: View {
                 }
             }
 
-            // Bus services — header only shown when both types present
+            // Bus services — always show header; carries updated label when no trains
             if let buses = boardLoad.board?.busServices, !buses.isEmpty {
-                if hasTrains {
-                    Section {} header: {
+                Section {} header: {
+                    HStack(spacing: 6) {
                         Label("Buses", systemImage: "bus.fill")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(Theme.brand)
                             .textCase(nil)
+                        if !hasTrains { updatedLabel }
                     }
                 }
 
@@ -573,6 +563,18 @@ struct DepartureBoardView: View {
     }
 
     // MARK: - Helper Methods
+
+    @ViewBuilder
+    private var updatedLabel: some View {
+        if let updated = boardLoad.lastUpdate {
+            TimelineView(.periodic(from: updated, by: 10)) { ctx in
+                Text(ContentView.fuzzyLabel(from: updated, tick: ctx.date))
+                    .font(.caption2)
+            }
+            .foregroundStyle(Color(.secondaryLabel).opacity(0.65))
+            .textCase(nil)
+        }
+    }
 
     private var filterChipLabel: String {
         let name = boardLoad.board?.filterLocationName ?? filter.station?.name ?? ""

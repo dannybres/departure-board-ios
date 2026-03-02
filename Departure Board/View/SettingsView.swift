@@ -145,17 +145,17 @@ struct SettingsView: View {
                         case .none:
                             Text("No operator colour coding. All rows use the standard background.")
                         case .trackline:
-                            Text("A 3 pt stripe on the leading edge of each row shows the operator's brand colour — minimal and unobtrusive.")
+                            Text("A thin stripe on the left edge of each row shows the operator's colour — barely-there but easy to spot once you know it's there.")
                         case .signalRail:
-                            Text("A thin vertical divider between the time and destination columns is coloured with the operator's brand colour.")
+                            Text("A slim coloured line sits between the time and the destination — a subtle nod to the operator without taking up much space.")
                         case .timeTile:
-                            Text("The time text sits inside a small coloured rounded rectangle — just a pop of brand colour around the departure time.")
+                            Text("The departure time sits inside a small coloured block — a neat pop of brand colour right where your eye goes first.")
                         case .timePanel:
-                            Text("A ~66 pt coloured panel sits behind the time column only, echoing a traditional departure board style. Related to Time Tile but broader.")
+                            Text("The left side of each row, behind the departure time, is filled with the operator's colour — like a classic departure board.")
                         case .platformPulse:
-                            Text("The platform badge takes on the operator's brand colour. When no platform is allocated yet, a small coloured dot appears instead.")
+                            Text("The platform badge takes on the operator's colour. A small dot appears in its place when no platform has been allocated yet.")
                         case .boardWash:
-                            Text("The entire row background is filled with the operator's brand colour. Bold and eye-catching.")
+                            Text("The entire row background is filled with the operator's colour. Bold, vivid, and impossible to miss.")
                         }
                     }
                     .font(.caption)
@@ -170,19 +170,24 @@ struct SettingsView: View {
                     Group {
                         switch ColourVibrancy(rawValue: colourVibrancyRaw) ?? .vibrant {
                         case .vibrant:
-                            Text("Operator colours are shown at full opacity — vivid and high-contrast.")
+                            Text("Operator colours are shown at full strength — vivid and bold.")
                         case .tinted:
-                            Text("Operator colours are shown at reduced opacity (22%) — subtle and easy on the eye.")
+                            Text("Operator colours are softened to a gentle wash — present but easy on the eye.")
                         }
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
-                themePreviewRow()
             } header: {
                 Text("Appearance")
             } footer: {
                 helpLink("appearance")
+            }
+
+            Section {
+                themePreviewRow()
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             }
 
             Section {

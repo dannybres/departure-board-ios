@@ -442,14 +442,13 @@ struct ContentView: View {
                 guard index < pairs.count else { break }
                 result[pairs[index].id] = summary
             }
-            // Only trigger split-flap for items that already had data and it changed.
-            // Items with no previous data (first load / after clear) animate via the
-            // trigger=0 appearance animation — no need to fire a second sequential trigger.
+            // Collect IDs where the displayed service changed, including nil → service
+            // (first load). Excludes items where the new result has no service to show.
             let changedIDs: [String] = pairs.compactMap { pair in
-                guard nextServiceStore.summaries[pair.id] != nil else { return nil }
                 let oldID = nextServiceStore.summaries[pair.id]?.service?.serviceId
                 let newID = result[pair.id]?.service?.serviceId
-                return oldID != newID ? pair.id : nil
+                guard newID != nil, oldID != newID else { return nil }
+                return pair.id
             }
 
             withAnimation(.easeOut(duration: 0.35)) {
@@ -458,10 +457,14 @@ struct ContentView: View {
             }
             nextServiceStore.lastUpdate = Date()
 
-            // Trigger split-flap animation for all changed items simultaneously.
+            // Trigger split-flap for all changed items. Deferred one run-loop turn so
+            // SwiftUI creates SplitFlapText with trigger=0 before we increment to 1 —
+            // otherwise onChange never fires on first appearance.
             if splitFlapRefresh && !changedIDs.isEmpty {
-                for itemID in changedIDs {
-                    nextServiceStore.refreshIDs[itemID, default: 0] += 1
+                Task { @MainActor in
+                    for itemID in changedIDs {
+                        nextServiceStore.refreshIDs[itemID, default: 0] += 1
+                    }
                 }
             }
         } catch {

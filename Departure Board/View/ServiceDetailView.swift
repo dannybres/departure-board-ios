@@ -621,10 +621,20 @@ struct ServiceDetailView: View {
                 }
             }
         } header: {
-            Label("Calling Points", systemImage: "arrow.down")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Theme.brand)
-                .textCase(nil)
+            HStack(spacing: 6) {
+                Label("Calling Points", systemImage: "arrow.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.brand)
+                    .textCase(nil)
+                if let updated = loadState.lastUpdate {
+                    TimelineView(.periodic(from: updated, by: 10)) { ctx in
+                        Text(ContentView.fuzzyLabel(from: updated, tick: ctx.date))
+                            .font(.caption2)
+                    }
+                    .foregroundStyle(Color(.secondaryLabel).opacity(0.65))
+                    .textCase(nil)
+                }
+            }
         }
 
         // Split service — each branch after the split point
@@ -742,11 +752,15 @@ struct ServiceDetailView: View {
                     Text(point.cancelReason ?? "Cancelled")
                         .font(.caption)
                         .foregroundStyle(.red)
-                } else if point.status.lowercased() != "on time" && !point.status.isEmpty && point.status != "No report" {
+                } else if point.status.lowercased() != "on time" && !point.status.isEmpty {
                     if point.status.range(of: #"^\d{2}:\d{2}$"#, options: .regularExpression) != nil {
                         Text(isPast ? "Departed at \(point.status)" : "Expected at \(point.status)")
                             .font(.caption)
                             .foregroundStyle(point.isLate ? .orange : .primary)
+                    } else if point.status.lowercased() == "no report" {
+                        Text(point.status)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     } else {
                         Text(point.status)
                             .font(.caption)
