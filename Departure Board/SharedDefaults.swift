@@ -37,8 +37,13 @@ enum SharedDefaults {
         static let cachedStations    = "cachedStations"
         static let stationsLastRefresh = "stationsLastRefresh"
         static let didMigrateToSharedSuite = "didMigrateToSharedSuite"
-        static let rowTheme      = "rowTheme"
-        static let colourVibrancy = "colourVibrancy"
+        static let rowTheme          = "rowTheme"
+        static let colourVibrancy    = "colourVibrancy"
+        static let lastKnownLatitude  = "lastKnownLatitude"
+        static let lastKnownLongitude = "lastKnownLongitude"
+        static let widgetRowTheme     = "widgetRowTheme"
+        static let widgetColourMode   = "widgetColourMode"
+        static let widgetSplitFlap    = "widgetSplitFlap"
     }
 
     // MARK: - ID encoding / decoding

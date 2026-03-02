@@ -29,6 +29,26 @@ enum RowTheme: String, CaseIterable {
     }
 }
 
+/// Subset of row themes that translate cleanly to the widget's compact layout.
+/// Uses the app's brand colour rather than operator colours.
+enum WidgetTheme: String, CaseIterable {
+    case none          = "none"
+    case trackline     = "trackline"
+    case signalRail    = "signalRail"
+    case timeTile      = "timeTile"
+    case platformPulse = "platformPulse"
+
+    var displayName: String {
+        switch self {
+        case .none:          return "None"
+        case .trackline:     return "Trackline"
+        case .signalRail:    return "Signal Rail"
+        case .timeTile:      return "Time Tile"
+        case .platformPulse: return "Platform Pulse"
+        }
+    }
+}
+
 enum ColourVibrancy: String, CaseIterable {
     case vibrant = "vibrant"
     case tinted  = "tinted"

@@ -45,6 +45,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.first else { return }
+        SharedDefaults.shared.set(location.coordinate.latitude,  forKey: SharedDefaults.Keys.lastKnownLatitude)
+        SharedDefaults.shared.set(location.coordinate.longitude, forKey: SharedDefaults.Keys.lastKnownLongitude)
         Task { @MainActor in
             userLocation = location
         }

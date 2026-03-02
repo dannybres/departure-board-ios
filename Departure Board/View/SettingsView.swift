@@ -21,6 +21,9 @@ struct SettingsView: View {
     @AppStorage("stationNamesSmallCaps") var stationNamesSmallCaps: Bool = false
     @AppStorage(SharedDefaults.Keys.rowTheme) var rowThemeRaw: String = RowTheme.none.rawValue
     @AppStorage(SharedDefaults.Keys.colourVibrancy) var colourVibrancyRaw: String = ColourVibrancy.vibrant.rawValue
+    @AppStorage(SharedDefaults.Keys.widgetRowTheme, store: SharedDefaults.shared) var widgetRowThemeRaw: String = cWidgetTheme.none.rawValue
+    @AppStorage(SharedDefaults.Keys.widgetColourMode, store: SharedDefaults.shared) var widgetColourMode: String = "brand"
+    @AppStorage(SharedDefaults.Keys.widgetSplitFlap, store: SharedDefaults.shared) var widgetSplitFlap: Bool = false
     @AppStorage("autoLoadMode") var autoLoadMode: String = "off"
     @AppStorage("autoLoadDistanceMiles") var autoLoadDistanceMiles: Int = 2
     @AppStorage(SharedDefaults.Keys.favouriteBoards, store: SharedDefaults.shared) private var favouriteBoardsData: Data = Data()
@@ -191,6 +194,57 @@ struct SettingsView: View {
 
             Section {
                 themePreviewRow()
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("Widget Row Theme", selection: $widgetRowThemeRaw) {
+                        ForEach(WidgetTheme.allCases, id: \.rawValue) { theme in
+                            Text(theme.displayName).tag(theme.rawValue)
+                        }
+                    }
+                    Group {
+                        switch WidgetTheme(rawValue: widgetRowThemeRaw) ?? .none {
+                        case .none:
+                            Text("Plain rows with no colour accent.")
+                        case .trackline:
+                            Text("A thin coloured stripe on the left edge of each row.")
+                        case .signalRail:
+                            Text("A slim coloured line sits between the time and destination.")
+                        case .timeTile:
+                            Text("The departure time sits inside a small coloured block.")
+                        case .platformPulse:
+                            Text("The platform badge is filled with the accent colour.")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("Colour Source", selection: $widgetColourMode) {
+                        Text("Brand Colour").tag("brand")
+                        Text("Operator Colours").tag("operator")
+                    }
+                    Text("Use the app's brand colour for all accents, or each train operator's own livery colours.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Split-Flap Animations", isOn: $widgetSplitFlap)
+                    Text("Rows animate with a split-flap push effect whenever the widget refreshes or a service drops off the board.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Widget Appearance")
+            } footer: {
+                Text("Configured separately from the board view.")
+            }
+
+            Section {
+                widgetPreviewSection()
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             }
@@ -513,6 +567,152 @@ struct SettingsView: View {
             return "\(stationName) \(bt) \(arrow) \(filterName)"
         }
         return "\(stationName) · \(bt)"
+    }
+
+    // MARK: - Widget Preview
+
+    private struct WidgetPreviewService {
+        let scheduled: String
+        let destination: String
+        let platform: String?
+        let status: String
+        let isCancelled: Bool
+        let isDelayed: Bool
+        let operatorCode: String
+    }
+
+    private let widgetMockServices: [WidgetPreviewService] = [
+        .init(scheduled: "08:32", destination: "London Paddington",    platform: "3",   status: "On time",   isCancelled: false, isDelayed: false, operatorCode: "GW"),
+        .init(scheduled: "08:47", destination: "Manchester Piccadilly", platform: "7",   status: "09:02",     isCancelled: false, isDelayed: true,  operatorCode: "TP"),
+        .init(scheduled: "09:15", destination: "Edinburgh Waverley",    platform: nil,   status: "On time",   isCancelled: false, isDelayed: false, operatorCode: "SR"),
+        .init(scheduled: "09:28", destination: "Birmingham New St",     platform: "1",   status: "Cancelled", isCancelled: true,  isDelayed: false, operatorCode: "VT"),
+    ]
+
+    @ViewBuilder
+    private func widgetPreviewSection() -> some View {
+        let theme = WidgetTheme(rawValue: widgetRowThemeRaw) ?? .none
+        VStack(alignment: .leading, spacing: 0) {
+            // Widget chrome header
+            HStack(alignment: .center) {
+                Text("London Waterloo")
+                    .font(.caption.bold())
+                    .foregroundStyle(Theme.brand)
+                Spacer(minLength: 0)
+                Text("just now")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
+            }
+            .padding(.bottom, 8)
+
+            ForEach(Array(widgetMockServices.enumerated()), id: \.offset) { _, service in
+                widgetPreviewRow(service, theme: theme, useOperatorColours: widgetColourMode == "operator")
+                    .padding(.vertical, 2)
+            }
+        }
+        .padding(14)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+        .animation(.default, value: widgetRowThemeRaw)
+        .animation(.default, value: widgetColourMode)
+    }
+
+    @ViewBuilder
+    private func widgetPreviewRow(_ service: WidgetPreviewService, theme: WidgetTheme, useOperatorColours: Bool = false) -> some View {
+        WidgetPreviewRowContent(service: service, theme: theme, useOperatorColours: useOperatorColours)
+    }
+
+    private struct WidgetPreviewRowContent: View {
+        let service: WidgetPreviewService
+        let theme: WidgetTheme
+        let useOperatorColours: Bool
+        @Environment(\.colorScheme) private var colorScheme
+
+        private var accent: Color {
+            useOperatorColours ? OperatorColours.entry(for: service.operatorCode).primary : Theme.brand
+        }
+        private var accentIsLight: Bool {
+            useOperatorColours && OperatorColours.entry(for: service.operatorCode).primaryIsLight
+        }
+
+        var body: some View {
+            HStack(spacing: 0) {
+                if theme == .trackline {
+                    accent
+                        .frame(width: 2)
+                        .padding(.vertical, 1)
+                        .padding(.trailing, 5)
+                }
+
+                let timeFg: Color = theme == .timeTile
+                    ? (accentIsLight ? .black : .white)
+                    : .primary
+                let timeText = Text(service.scheduled)
+                    .font(.system(.caption2, design: .monospaced).bold())
+                    .foregroundStyle(timeFg)
+                    .lineLimit(1)
+                    .fixedSize()
+
+                if theme == .timeTile {
+                    timeText
+                        .padding(.vertical, 1)
+                        .padding(.horizontal, 3)
+                        .background(accent, in: RoundedRectangle(cornerRadius: 3))
+                        .padding(.trailing, 5)
+                } else {
+                    timeText.frame(width: 36, alignment: .leading)
+                }
+
+                if theme == .signalRail {
+                    accent
+                        .frame(width: 1.5)
+                        .padding(.vertical, 1)
+                        .padding(.horizontal, 4)
+                }
+
+                Text(service.destination)
+                    .font(.caption2)
+                    .lineLimit(1)
+                    .foregroundStyle(service.isCancelled ? Color(.label).opacity(0.45) : Color(.label))
+
+                Spacer(minLength: 0)
+
+                if service.isCancelled {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                } else if service.isDelayed {
+                    Text(service.status)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.orange)
+                }
+
+                if let platform = service.platform {
+                    let badgeBg: Color = theme == .platformPulse
+                        ? accent
+                        : Color(colorScheme == .dark ? UIColor.systemGray : UIColor.systemGray2)
+                    let badgeFg: Color = theme == .platformPulse
+                        ? (accentIsLight ? .black : .white)
+                        : (colorScheme == .dark ? .black : .white)
+                    Text(platform)
+                        .font(.system(.caption2, design: .monospaced).bold())
+                        .foregroundStyle(badgeFg)
+                        .fixedSize()
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(badgeBg, in: RoundedRectangle(cornerRadius: 3))
+                        .padding(.leading, 4)
+                } else if theme == .platformPulse {
+                    Circle()
+                        .fill(accent)
+                        .frame(width: 8, height: 8)
+                        .padding(.leading, 4)
+                }
+            }
+        }
     }
 
     @ViewBuilder

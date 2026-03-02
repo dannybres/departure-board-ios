@@ -11,11 +11,19 @@ import AppIntents
 
 // MARK: - App Intents for Configuration
 
+/// Sentinel CRS used to mean "resolve to nearest station at fetch time".
+private let nearestStationCRS = "__nearest__"
+
 struct BoardQuery: EntityQuery {
     func entities(for identifiers: [String]) async throws -> [BoardEntity] {
+        // Return the nearest sentinel entity without resolving — the provider resolves it at fetch time.
         let stations = loadStationCache()
         return identifiers.compactMap { id in
-            boardEntity(for: id, stations: stations)
+            if id.hasPrefix(nearestStationCRS) {
+                let boardType: BoardType = id.hasSuffix("arr") ? .arrivals : .departures
+                return nearestStationEntity(boardType: boardType)
+            }
+            return boardEntity(for: id, stations: stations)
         }
     }
 
@@ -23,15 +31,20 @@ struct BoardQuery: EntityQuery {
         let stations = loadStationCache()
         let favItems = loadFavouriteBoards()
 
-        // Build entities from favourite items first
-        var results: [BoardEntity] = []
+        // "Nearest Station" at the top
+        var results: [BoardEntity] = [
+            nearestStationEntity(boardType: .departures),
+            nearestStationEntity(boardType: .arrivals),
+        ]
+
+        // Favourites next
         for itemID in favItems {
             if let entity = boardEntity(for: itemID, stations: stations) {
                 results.append(entity)
             }
         }
 
-        // Then add all stations as departures (excluding already-added)
+        // Then all stations as departures (excluding already-added)
         let addedIDs = Set(results.map(\.id))
         for station in stations {
             let depID = SharedDefaults.boardID(crs: station.crsCode, boardType: .departures)
@@ -49,6 +62,19 @@ struct BoardQuery: EntityQuery {
         }
 
         return results
+    }
+
+    private func nearestStationEntity(boardType: BoardType) -> BoardEntity {
+        let suffix = boardType == .departures ? "dep" : "arr"
+        return BoardEntity(
+            id: "\(nearestStationCRS)-\(suffix)",
+            displayName: "Nearest Station",
+            subtitle: boardType == .departures ? "Departures · Auto" : "Arrivals · Auto",
+            crs: nearestStationCRS,
+            boardType: boardType,
+            filterCrs: nil,
+            filterType: nil
+        )
     }
 
     func defaultResult() async -> BoardEntity? {
@@ -124,11 +150,23 @@ struct DualStationIntent: WidgetConfigurationIntent {
     var secondBoard: BoardEntity?
 }
 
+struct RefreshWidgetIntent: AppIntent {
+    static var title: LocalizedStringResource = "Refresh Widget"
+    static var isDiscoverable: Bool = false
+
+    func perform() async throws -> some IntentResult {
+        WidgetCenter.shared.reloadAllTimelines()
+        return .result()
+    }
+}
+
 // MARK: - Timeline Entry
 
 struct DepartureEntry: TimelineEntry {
     let date: Date
     let stations: [StationDepartures]
+    var isOutsideUK: Bool = false
+    var londonTimeString: String = ""
 
     struct StationDepartures {
         let name: String
@@ -150,6 +188,7 @@ struct DepartureEntry: TimelineEntry {
         let isCancelled: Bool
         let isDelayed: Bool
         let isBus: Bool
+        let operatorCode: String
     }
 }
 
@@ -168,6 +207,9 @@ struct SingleStationProvider: AppIntentTimelineProvider {
     }
 
     func timeline(for configuration: SingleStationIntent, in context: Context) async -> Timeline<DepartureEntry> {
+        if let loc = loadLastKnownLocation(), !isInUK(lat: loc.lat, lon: loc.lon) {
+            return travelTimeline()
+        }
         let entry = await fetchEntry(boards: selectedBoards(for: configuration), servicesPerStation: 16)
         let nextRefresh = Date().addingTimeInterval(300)
         return Timeline(entries: [entry], policy: .after(nextRefresh))
@@ -175,7 +217,8 @@ struct SingleStationProvider: AppIntentTimelineProvider {
 
     private func selectedBoards(for config: SingleStationIntent) -> [BoardConfig] {
         if let board = config.board {
-            return [BoardConfig(crs: board.crs, boardType: board.boardType, filterCrs: board.filterCrs, filterType: board.filterType)]
+            let raw = BoardConfig(crs: board.crs, boardType: board.boardType, filterCrs: board.filterCrs, filterType: board.filterType)
+            return [resolveBoard(raw)]
         }
         // Fall back to first favourite
         return defaultBoards(count: 1)
@@ -197,6 +240,9 @@ struct DualStationProvider: AppIntentTimelineProvider {
     }
 
     func timeline(for configuration: DualStationIntent, in context: Context) async -> Timeline<DepartureEntry> {
+        if let loc = loadLastKnownLocation(), !isInUK(lat: loc.lat, lon: loc.lon) {
+            return travelTimeline()
+        }
         let entry = await fetchEntry(boards: selectedBoards(for: configuration), servicesPerStation: 8)
         let nextRefresh = Date().addingTimeInterval(300)
         return Timeline(entries: [entry], policy: .after(nextRefresh))
@@ -205,10 +251,10 @@ struct DualStationProvider: AppIntentTimelineProvider {
     private func selectedBoards(for config: DualStationIntent) -> [BoardConfig] {
         var boards: [BoardConfig] = []
         if let b = config.firstBoard {
-            boards.append(BoardConfig(crs: b.crs, boardType: b.boardType, filterCrs: b.filterCrs, filterType: b.filterType))
+            boards.append(resolveBoard(BoardConfig(crs: b.crs, boardType: b.boardType, filterCrs: b.filterCrs, filterType: b.filterType)))
         }
         if let b = config.secondBoard {
-            boards.append(BoardConfig(crs: b.crs, boardType: b.boardType, filterCrs: b.filterCrs, filterType: b.filterType))
+            boards.append(resolveBoard(BoardConfig(crs: b.crs, boardType: b.boardType, filterCrs: b.filterCrs, filterType: b.filterType)))
         }
         if boards.isEmpty {
             boards = defaultBoards(count: 2)
@@ -224,6 +270,23 @@ struct BoardConfig {
     let boardType: BoardType
     let filterCrs: String?
     let filterType: String?
+}
+
+/// Resolves the `__nearest__` sentinel to the actual nearest station CRS, if location is available.
+private func resolveNearestCRS() -> String? {
+    guard let loc = loadLastKnownLocation() else { return nil }
+    let stations = loadStationCache()
+    return stations.min(by: { s0, s1 in
+        let d0 = (s0.latitude - loc.lat) * (s0.latitude - loc.lat) + (s0.longitude - loc.lon) * (s0.longitude - loc.lon)
+        let d1 = (s1.latitude - loc.lat) * (s1.latitude - loc.lat) + (s1.longitude - loc.lon) * (s1.longitude - loc.lon)
+        return d0 < d1
+    })?.crsCode
+}
+
+private func resolveBoard(_ config: BoardConfig) -> BoardConfig {
+    guard config.crs == nearestStationCRS else { return config }
+    let crs = resolveNearestCRS() ?? config.crs   // fall back to sentinel (will show error gracefully)
+    return BoardConfig(crs: crs, boardType: config.boardType, filterCrs: nil, filterType: nil)
 }
 
 private func defaultBoards(count: Int) -> [BoardConfig] {
@@ -294,7 +357,8 @@ private func fetchEntry(boards: [BoardConfig], servicesPerStation: Int) async ->
                     status: status,
                     isCancelled: isCancelled,
                     isDelayed: isDelayed,
-                    isBus: service.serviceType == "bus"
+                    isBus: service.serviceType == "bus",
+                    operatorCode: service.operatorCode
                 )
             }
             stationDepartures.append(.init(name: name, crs: board.crs, filterLabel: filterLabel, filterCrs: board.filterCrs, filterType: board.filterType, services: Array(services)))
@@ -330,6 +394,36 @@ private func fetchBoard(crs: String, boardType: BoardType, numRows: Int, filterC
     return try JSONDecoder().decode(DepartureBoard.self, from: data)
 }
 
+// MARK: - Location / UK Detection
+
+private func loadLastKnownLocation() -> (lat: Double, lon: Double)? {
+    guard SharedDefaults.shared.object(forKey: SharedDefaults.Keys.lastKnownLatitude) != nil else { return nil }
+    let lat = SharedDefaults.shared.double(forKey: SharedDefaults.Keys.lastKnownLatitude)
+    let lon = SharedDefaults.shared.double(forKey: SharedDefaults.Keys.lastKnownLongitude)
+    return (lat, lon)
+}
+
+private func isInUK(lat: Double, lon: Double) -> Bool {
+    lat >= 49.9 && lat <= 60.9 && lon >= -8.2 && lon <= 1.8
+}
+
+private func formatLondonTime(_ date: Date) -> String {
+    let fmt = DateFormatter()
+    fmt.timeZone = TimeZone(identifier: "Europe/London")
+    fmt.dateFormat = "HH:mm"
+    return fmt.string(from: date)
+}
+
+/// Generates per-minute entries for the next hour so the London clock ticks live.
+private func travelTimeline() -> Timeline<DepartureEntry> {
+    let now = Date()
+    let entries = (0..<60).map { minute -> DepartureEntry in
+        let d = now.addingTimeInterval(Double(minute) * 60)
+        return DepartureEntry(date: d, stations: [], isOutsideUK: true, londonTimeString: formatLondonTime(d))
+    }
+    return Timeline(entries: entries, policy: .atEnd)
+}
+
 private let widgetErrorMessages = [
     "Delayed by a network error.",
     "Signal failure. Data couldn't get through.",
@@ -355,7 +449,8 @@ extension DepartureEntry {
                 status: i == 0 ? "On time" : String(format: "%02d:%02d", 8 + i / 4, ((i * 15) + 3) % 60),
                 isCancelled: false,
                 isDelayed: i > 0,
-                isBus: false
+                isBus: false,
+                operatorCode: ["GW", "TP", "SR", "VT", "GR", "SW"][i % 6]
             )
         }
         let stations = (0..<stationCount).map { i in
@@ -395,8 +490,10 @@ struct SingleStationWidgetView: View {
     }
 
     var body: some View {
-        if let station = entry.stations.first {
-            StationBlock(station: station, style: rowStyle, maxRows: maxRows)
+        if entry.isOutsideUK {
+            TravelView(londonTime: entry.londonTimeString, entryDate: entry.date)
+        } else if let station = entry.stations.first {
+            StationBlock(station: station, entryDate: entry.date, style: rowStyle, maxRows: maxRows)
         } else {
             Text("Tap and hold to choose a station")
                 .font(.caption)
@@ -415,7 +512,9 @@ struct DualStationWidgetView: View {
     }
 
     var body: some View {
-        if entry.stations.isEmpty {
+        if entry.isOutsideUK {
+            TravelView(londonTime: entry.londonTimeString, entryDate: entry.date)
+        } else if entry.stations.isEmpty {
             Text("Tap and hold to choose stations")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -423,12 +522,12 @@ struct DualStationWidgetView: View {
         } else {
             VStack(spacing: 0) {
                 if let first = entry.stations.first {
-                    StationBlock(station: first, style: .compact, maxRows: maxRowsPerStation)
+                    StationBlock(station: first, entryDate: entry.date, style: .compact, maxRows: maxRowsPerStation)
                 }
                 if entry.stations.count > 1 {
                     Divider()
                         .padding(.horizontal)
-                    StationBlock(station: entry.stations[1], style: .compact, maxRows: maxRowsPerStation)
+                    StationBlock(station: entry.stations[1], entryDate: entry.date, style: .compact, maxRows: maxRowsPerStation)
                 }
             }
         }
@@ -441,47 +540,109 @@ enum WidgetRowStyle {
     case full     // large: full size with status
 }
 
+/// Widget-specific row themes, stored in SharedDefaults so the widget can read them.
+/// Uses the app's brand colour as the accent rather than per-operator colours.
+enum WidgetTheme: String {
+    case none          = "none"
+    case trackline     = "trackline"
+    case signalRail    = "signalRail"
+    case timeTile      = "timeTile"
+    case platformPulse = "platformPulse"
+}
+
+private func loadWidgetTheme() -> WidgetTheme {
+    let raw = SharedDefaults.shared.string(forKey: SharedDefaults.Keys.widgetRowTheme) ?? "none"
+    return WidgetTheme(rawValue: raw) ?? .none
+}
+
+private func loadWidgetColourMode() -> String {
+    SharedDefaults.shared.string(forKey: SharedDefaults.Keys.widgetColourMode) ?? "brand"
+}
+
+private func loadWidgetSplitFlap() -> Bool {
+    SharedDefaults.shared.bool(forKey: SharedDefaults.Keys.widgetSplitFlap)
+}
+
+private func widgetAccentColor(for code: String) -> (color: Color, isLight: Bool) {
+    let table: [String: (String, Bool)] = [
+        "AW": ("#00A3A6", false), "CC": ("#B81C8D", false), "CH": ("#000080", false),
+        "EM": ("#582C83", false), "ES": ("#0C1C8C", false), "GM": ("#003057", false),
+        "GN": ("#1D2D5C", false), "GR": ("#CF0A2C", false), "GW": ("#0B2D27", false),
+        "GX": ("#CF0A2C", false), "HS": ("#1D2D5C", false), "HV": ("#003057", false),
+        "HX": ("#4B006E", false), "IL": ("#1E90FF", false), "LE": ("#CC0000", false),
+        "LN": ("#004CA4", false), "LO": ("#EE7C0E", false), "LT": ("#E32017", false),
+        "ME": ("#FFF200", true),  "NR": ("#003057", false), "NT": ("#23335F", false),
+        "SE": ("#1D2D5C", false), "SN": ("#8CC63E", false), "SR": ("#003D8F", false),
+        "SW": ("#1D2D5C", false), "TL": ("#E6007E", false), "TP": ("#010385", false),
+        "VT": ("#004C45", false), "WM": ("#7B2082", false), "XP": ("#010385", false),
+        "XR": ("#6950A1", false), "XS": ("#003D8F", false), "ZZ": ("#8E8E93", false),
+    ]
+    let (hex, isLight) = table[code] ?? table["ZZ"]!
+    let h = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+    var int: UInt64 = 0; Scanner(string: h).scanHexInt64(&int)
+    let color = Color(red: Double((int >> 16) & 0xFF) / 255,
+                      green: Double((int >> 8)  & 0xFF) / 255,
+                      blue:  Double(int         & 0xFF) / 255)
+    return (color, isLight)
+}
+
 struct StationBlock: View {
     let station: DepartureEntry.StationDepartures
+    let entryDate: Date
     var style: WidgetRowStyle = .full
     var maxRows: Int? = nil
 
     var body: some View {
         let services = maxRows.map { Array(station.services.prefix($0)) } ?? station.services
         VStack(alignment: .leading, spacing: style == .full ? 4 : 2) {
-            Link(destination: URL(string: "departure://departures/\(station.crs)")!) {
-                let arrow = station.filterType == "from" ? "←" : "→"
-                let filterText: String? = {
-                    guard let crs = station.filterCrs else { return nil }
-                    if style == .minimal {
-                        return "\(arrow) \(crs)"
-                    }
-                    // Derive "→ Station Name" from filterLabel ("Calling at Station Name" / "From Station Name")
-                    if let label = station.filterLabel {
-                        if label.hasPrefix("Calling at ") {
-                            return "→ \(label.dropFirst("Calling at ".count))"
-                        } else if label.hasPrefix("From ") {
-                            return "← \(label.dropFirst("From ".count))"
-                        }
-                    }
+            let arrow = station.filterType == "from" ? "←" : "→"
+            let filterText: String? = {
+                guard let crs = station.filterCrs else { return nil }
+                if style == .minimal {
                     return "\(arrow) \(crs)"
-                }()
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(station.name)
-                        .font({
-                            let sc = UserDefaults.standard.bool(forKey: "stationNamesSmallCaps")
-                            return Font.caption.weight(.bold).smallCapsIfEnabled(sc)
-                        }())
-                        .foregroundStyle(Theme.brand)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                    if let filterText {
-                        Text(filterText)
-                            .font(.system(size: 9).weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                }
+                if let label = station.filterLabel {
+                    if label.hasPrefix("Calling at ") {
+                        return "→ \(label.dropFirst("Calling at ".count))"
+                    } else if label.hasPrefix("From ") {
+                        return "← \(label.dropFirst("From ".count))"
                     }
                 }
+                return "\(arrow) \(crs)"
+            }()
+            HStack(alignment: .center, spacing: 4) {
+                Link(destination: URL(string: "departure://departures/\(station.crs)")!) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(station.name)
+                            .font({
+                                let sc = UserDefaults.standard.bool(forKey: "stationNamesSmallCaps")
+                                return Font.caption.weight(.bold).smallCapsIfEnabled(sc)
+                            }())
+                            .foregroundStyle(Theme.brand)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                        if let filterText {
+                            Text(filterText)
+                                .font(.system(size: 9).weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+                if style != .minimal {
+                    Text(entryDate, style: .relative)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                }
+                Button(intent: RefreshWidgetIntent()) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: style == .minimal ? 9 : 10))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
             }
 
             if let message = station.errorMessage {
@@ -496,12 +657,19 @@ struct StationBlock: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
+                let splitFlap = loadWidgetSplitFlap()
                 ForEach(services) { service in
                     let encodedID = service.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? service.id
                     Link(destination: URL(string: "departure://service/\(station.crs)/\(encodedID)")!) {
                         WidgetDepartureRow(service: service, style: style)
                     }
+                    .transition(splitFlap
+                        ? .asymmetric(
+                            insertion: .move(edge: .bottom).combined(with: .opacity),
+                            removal:   .move(edge: .top).combined(with: .opacity))
+                        : .identity)
                 }
+                .animation(.easeInOut(duration: 0.3), value: services.map(\.id))
             }
             Spacer(minLength: 0)
         }
@@ -514,27 +682,76 @@ struct WidgetDepartureRow: View {
     var style: WidgetRowStyle = .full
     @Environment(\.colorScheme) private var colorScheme
 
-    private var timeColor: Color {
+    private var theme: WidgetTheme { loadWidgetTheme() }
+    private var isCompact: Bool { style != .full }
+
+    private var accentColor: Color {
+        loadWidgetColourMode() == "operator"
+            ? widgetAccentColor(for: service.operatorCode).color
+            : Theme.brand
+    }
+    private var accentIsLight: Bool {
+        loadWidgetColourMode() == "operator" && widgetAccentColor(for: service.operatorCode).isLight
+    }
+
+    private var statusColor: Color {
         if service.isCancelled { return .red }
         if service.isDelayed { return .orange }
         return .primary
     }
 
-    private var isCompact: Bool { style != .full }
+    private var timeForeground: Color {
+        if style == .minimal { return statusColor }
+        if theme == .timeTile { return accentIsLight ? .black : .white }
+        return .primary
+    }
 
     var body: some View {
-        HStack(spacing: 6) {
-            Text(service.scheduled)
-                .font(.system(isCompact ? .caption2 : .caption, design: .monospaced).bold())
-                .foregroundStyle(style == .minimal ? timeColor : .primary)
-                .frame(width: isCompact ? 36 : 40, alignment: .leading)
+        HStack(spacing: 0) {
+            // MARK: Trackline accent stripe
+            if theme == .trackline {
+                accentColor
+                    .frame(width: 2)
+                    .padding(.vertical, isCompact ? 1 : 2)
+                    .padding(.trailing, 5)
+            }
 
+            // MARK: Time
+            let timeText = Text(service.scheduled)
+                .font(.system(isCompact ? .caption2 : .caption, design: .monospaced).bold())
+                .foregroundStyle(timeForeground)
+                .lineLimit(1)
+                .fixedSize()
+                .contentTransition(.numericText())
+
+            if theme == .timeTile {
+                timeText
+                    .padding(.vertical, isCompact ? 1 : 2)
+                    .padding(.horizontal, isCompact ? 3 : 4)
+                    .background(accentColor, in: RoundedRectangle(cornerRadius: 3))
+                    .padding(.trailing, 5)
+            } else {
+                timeText
+                    .frame(width: isCompact ? 36 : 40, alignment: .leading)
+            }
+
+            // MARK: Signal Rail divider
+            if theme == .signalRail {
+                accentColor
+                    .frame(width: 1.5)
+                    .padding(.vertical, isCompact ? 1 : 2)
+                    .padding(.horizontal, 4)
+            }
+
+            // MARK: Destination
             Text(service.destination)
                 .font(isCompact ? .caption2 : .caption)
                 .lineLimit(1)
+                .contentTransition(.interpolate)
 
             Spacer(minLength: 0)
 
+            // MARK: Status / cancelled
             if style == .minimal {
                 if service.isCancelled {
                     Image(systemName: "xmark.circle.fill")
@@ -550,6 +767,7 @@ struct WidgetDepartureRow: View {
                     Text(service.status)
                         .font(.system(.caption2, design: .monospaced))
                         .foregroundStyle(service.isDelayed ? .orange : .secondary)
+                        .contentTransition(.numericText())
                 }
             }
 
@@ -557,21 +775,78 @@ struct WidgetDepartureRow: View {
                 Image(systemName: "bus.fill")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
             }
 
+            // MARK: Platform badge
             if let platform = service.platform {
+                let badgeBg: Color = theme == .platformPulse
+                    ? accentColor
+                    : (colorScheme == .dark ? Theme.platformBadgeDark : Theme.platformBadge)
+                let badgeFg: Color = theme == .platformPulse
+                    ? (accentIsLight ? Color.black : Color.white)
+                    : (colorScheme == .dark ? .black : .white)
                 Text(platform)
                     .font(.system(.caption2, design: .monospaced).bold())
-                    .foregroundStyle(colorScheme == .dark ? .black : .white)
+                    .foregroundStyle(badgeFg)
                     .fixedSize()
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
-                    .background(
-                        colorScheme == .dark ? Theme.platformBadgeDark : Theme.platformBadge,
-                        in: RoundedRectangle(cornerRadius: 3)
-                    )
+                    .background(badgeBg, in: RoundedRectangle(cornerRadius: 3))
+                    .padding(.leading, 4)
+            } else if theme == .platformPulse {
+                Circle()
+                    .fill(accentColor)
+                    .frame(width: 8, height: 8)
+                    .padding(.leading, 4)
             }
         }
+    }
+}
+
+// MARK: - Travel View (outside UK)
+
+struct TravelView: View {
+    let londonTime: String
+    let entryDate: Date
+    @Environment(\.widgetFamily) private var family
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center) {
+                Text("🌍 Abroad")
+                    .font(.caption.bold())
+                Spacer(minLength: 0)
+                Button(intent: RefreshWidgetIntent()) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer(minLength: 0)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("London")
+                    .font(.system(size: family == .systemSmall ? 10 : 11).weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(londonTime)
+                    .font(.system(family == .systemSmall ? .title : .largeTitle, design: .monospaced).bold())
+                    .foregroundStyle(Theme.brand)
+                    .minimumScaleFactor(0.5)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+
+            if family != .systemSmall {
+                Text("See you back on the rails! 🚂")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 }
 
@@ -606,3 +881,5 @@ struct DualStationWidget: Widget {
         .promptsForUserConfiguration()
     }
 }
+
+

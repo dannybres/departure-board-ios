@@ -723,10 +723,11 @@ struct ContentView: View {
                 .navigationDestination(for: StationDestination.self) { dest in
                     DepartureBoardView(station: dest.station, initialBoardType: dest.boardType, pendingServiceID: dest.pendingServiceID, initialFilterStation: dest.filterStation, initialFilterType: dest.filterType, navigationPath: $navigationPath)
                 }
-                .onAppear { locationManager.refresh() }
+                .onAppear { locationManager.refresh(); updateNearbyStations() }
                 .onChange(of: scenePhase) {
                     if scenePhase == .active {
                         locationManager.refresh()
+                        updateNearbyStations()
                     }
                 }
                 .onChange(of: locationManager.userLocation) {
@@ -782,10 +783,11 @@ struct ContentView: View {
                             }
                         })
                     }
-                    .onAppear { locationManager.refresh() }
+                    .onAppear { locationManager.refresh(); updateNearbyStations() }
                     .onChange(of: scenePhase) {
                         if scenePhase == .active {
                             locationManager.refresh()
+                            updateNearbyStations()
                         }
                     }
                     .onChange(of: locationManager.userLocation) {
@@ -873,6 +875,12 @@ struct ContentView: View {
             }
             .onChange(of: locationManager.userLocation) { updateNearbyStations() }
             .onChange(of: viewModel.stations) { updateNearbyStations() }
+            .onChange(of: favouriteBoardsData) { Task { await fetchNextServices() } }
+            .onChange(of: navigationPath) {
+                guard navigationPath.isEmpty else { return }
+                locationManager.refresh()
+                updateNearbyStations()
+            }
             .searchable(text: $searchText, prompt: "Search stations")
     }
 
