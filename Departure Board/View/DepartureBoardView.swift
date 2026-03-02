@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Combine
 
 private struct BoardLoadState {
     var board: DepartureBoard? = nil
@@ -41,7 +42,13 @@ struct DepartureBoardView: View {
     @State private var didAutoNavigate = false
     @State private var timeOffset: Int? = nil
     @State private var showNrccMessages = false
-@AppStorage(SharedDefaults.Keys.favouriteBoards, store: SharedDefaults.shared) private var favouriteBoardsData: Data = Data()
+    @State private var tickDate = Date()
+    @AppStorage(SharedDefaults.Keys.favouriteBoards, store: SharedDefaults.shared) private var favouriteBoardsData: Data = Data()
+    @AppStorage(SharedDefaults.Keys.operatorColourStyle) private var operatorColourStyleRaw: String = OperatorColourStyle.none.rawValue
+
+    private var operatorColourStyle: OperatorColourStyle {
+        OperatorColourStyle(rawValue: operatorColourStyleRaw) ?? .none
+    }
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.stationNamesSmallCaps) private var stationNamesSmallCaps
 
@@ -72,10 +79,6 @@ struct DepartureBoardView: View {
 
     private var hasAnyServices: Bool {
         hasTrains || hasBuses
-    }
-
-    private var showServiceTypeHeaders: Bool {
-        hasTrains && hasBuses
     }
 
     var body: some View {
@@ -261,6 +264,9 @@ struct DepartureBoardView: View {
                 try? await loadBoard(type: selectedBoard, silent: true)
             }
         }
+        .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
+            tickDate = Date()
+        }
     }
 
     // MARK: - Service List Rows
@@ -317,25 +323,30 @@ struct DepartureBoardView: View {
                 .listRowBackground(Color.orange.opacity(0.08))
             }
 
-            // Train services
+            // Train services — header always shown
             if let trains = boardLoad.board?.trainServices, !trains.isEmpty {
-                if showServiceTypeHeaders {
-                    Section {
+                Section {
+                    HStack {
                         Label("Trains", systemImage: "tram.fill")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Theme.brand)
-                            .listRowBackground(Color.clear)
+                        if let label = fuzzyUpdateLabel {
+                            Text(label)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
+                    .listRowBackground(Color.clear)
                 }
 
-                ForEach(trains) { service in
-                    Section { serviceRow(service) }
+                ForEach(Array(trains.enumerated()), id: \.element.id) { index, service in
+                    Section { serviceRow(service, index: index) }
                 }
             }
 
-            // Bus services
+            // Bus services — header only shown when both types are present
             if let buses = boardLoad.board?.busServices, !buses.isEmpty {
-                if showServiceTypeHeaders {
+                if hasTrains {
                     Section {
                         Label("Buses", systemImage: "bus.fill")
                             .font(.subheadline.weight(.semibold))
@@ -344,8 +355,8 @@ struct DepartureBoardView: View {
                     }
                 }
 
-                ForEach(buses) { service in
-                    Section { serviceRow(service) }
+                ForEach(Array(buses.enumerated()), id: \.element.id) { index, service in
+                    Section { serviceRow(service, index: index) }
                 }
             }
 
@@ -407,12 +418,48 @@ struct DepartureBoardView: View {
     // MARK: - Service Row
 
     @ViewBuilder
-    private func serviceRow(_ service: Service) -> some View {
+    private func serviceRow(_ service: Service, index: Int = 0) -> some View {
+        let effectiveStyle: OperatorColourStyle = {
+            if operatorColourStyle == .preview {
+                switch index % 4 {
+                case 0: return .subtle
+                case 1: return .colourful
+                case 2: return .gradient
+                default: return .vibrant
+                }
+            }
+            return operatorColourStyle
+        }()
+        let colours = OperatorColours.entry(for: service.operatorCode)
+        let isHighlighted = highlightedServiceID == service.serviceId
+
         NavigationLink(value: service) {
-            DepartureRow(service: service, boardType: selectedBoard)
+            DepartureRow(service: service, boardType: selectedBoard, operatorColourStyle: effectiveStyle, operatorColours: colours)
         }
         .contextMenu { serviceContextMenu(service) }
-        .listRowBackground(highlightedServiceID == service.serviceId ? Theme.brandSubtle : nil)
+        .listRowBackground(rowBackground(style: effectiveStyle, colours: colours, isHighlighted: isHighlighted))
+    }
+
+    @ViewBuilder
+    private func rowBackground(style: OperatorColourStyle, colours: OperatorColours.Entry, isHighlighted: Bool) -> some View {
+        if isHighlighted {
+            Theme.brandSubtle
+        } else {
+            switch style {
+            case .none:
+                Color(.secondarySystemGroupedBackground)
+            case .subtle:
+                SubtleOperatorBackground(colour: colours.primary)
+            case .colourful:
+                colours.primary.opacity(0.22)
+            case .gradient:
+                GradientOperatorBackground(primary: colours.primary, secondary: colours.secondary)
+            case .vibrant:
+                colours.primary
+            case .preview:
+                Color(.secondarySystemGroupedBackground)
+            }
+        }
     }
 
     // MARK: - Context Menu
@@ -521,6 +568,11 @@ struct DepartureBoardView: View {
 
     // MARK: - Helper Methods
 
+    private var fuzzyUpdateLabel: String? {
+        guard let updated = boardLoad.lastUpdate else { return nil }
+        return ContentView.fuzzyLabel(from: updated, tick: tickDate)
+    }
+
     private var filterChipLabel: String {
         let name = boardLoad.board?.filterLocationName ?? filter.station?.name ?? ""
         return filter.type == "to" ? "Calling at \(name)" : "From \(name)"
@@ -563,7 +615,37 @@ struct DepartureRow: View {
 
     let service: Service
     let boardType: BoardType
+    var operatorColourStyle: OperatorColourStyle = .none
+    var operatorColours: OperatorColours.Entry = OperatorColours.entry(for: "ZZ")
     @Environment(\.colorScheme) private var colorScheme
+
+    private var isVibrant: Bool { operatorColourStyle == .vibrant }
+    private var isGradient: Bool { operatorColourStyle == .gradient }
+    private var isSubtle: Bool { operatorColourStyle == .subtle }
+
+    /// Colour for text that sits on the solid coloured part of the background.
+    /// Vibrant/gradient/subtle all put primary-colour behind the time; vibrant also covers the station name.
+    private var onPrimaryTextColour: Color {
+        switch operatorColourStyle {
+        case .vibrant, .gradient:
+            return operatorColours.secondary
+        case .subtle:
+            return operatorColours.primaryIsLight ? Color.black : Color.white
+        default:
+            return Color(.label)
+        }
+    }
+
+    private var stationNameColour: Color {
+        switch operatorColourStyle {
+        case .vibrant:
+            return operatorColours.secondary
+        case .subtle, .gradient:
+            return operatorColours.primaryIsLight ? Color.black : Color.white
+        default:
+            return Color(.label)
+        }
+    }
 
     private var locations: [Location] {
         if boardType == .arrivals {
@@ -582,25 +664,27 @@ struct DepartureRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             Text(service.scheduled)
                 .font(Theme.timeFont)
                 .lineLimit(1)
                 .fixedSize()
                 .frame(width: 44, alignment: .leading)
+                .foregroundStyle(onPrimaryTextColour)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(locations.map(\.locationName).joined(separator: " & "))
                         .font(Font.title3.weight(.semibold).smallCapsIfEnabled(stationNamesSmallCaps))
+                        .foregroundStyle(stationNameColour)
 
                     if isCancelled {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.red)
+                            .foregroundStyle(adaptedStatusColor(.red))
                             .font(.caption)
                     } else if isDelayed {
                         Image(systemName: "clock.fill")
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(adaptedStatusColor(.orange))
                             .font(.caption)
                     }
                 }
@@ -609,7 +693,7 @@ struct DepartureRow: View {
                 ForEach(uniqueVias, id: \.self) { via in
                     Text(via)
                         .font(Font.subheadline.smallCapsIfEnabled(stationNamesSmallCaps))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(stationNameColour.opacity(0.75))
                 }
 
                 if service.estimated.lowercased() != "on time" {
@@ -624,11 +708,11 @@ struct DepartureRow: View {
             if let platform = service.platform {
                 Text(platform.uppercased() == "BUS" ? platform : "Plat \(platform)")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(colorScheme == .dark ? .black : .white)
+                    .foregroundStyle(isVibrant ? operatorColours.primary : (colorScheme == .dark ? .black : .white))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(
-                        colorScheme == .dark ? Theme.platformBadgeDark : Theme.platformBadge,
+                        isVibrant ? operatorColours.secondary : (colorScheme == .dark ? Theme.platformBadgeDark : Theme.platformBadge),
                         in: RoundedRectangle(cornerRadius: 6)
                     )
             }
@@ -642,9 +726,23 @@ struct DepartureRow: View {
 
     private func statusColor(for etd: String) -> Color {
         let text = etd.lowercased()
-        if text.contains("cancel") { return .red }
-        if text.contains("delayed") { return .red }
-        if text.contains("on time") { return .primary }
-        return .orange
+        if text.contains("cancel") { return adaptedStatusColor(.red) }
+        if text.contains("delayed") { return adaptedStatusColor(.red) }
+        if text.contains("on time") { return Color(.label) }
+        return adaptedStatusColor(.orange)
+    }
+
+    /// On a coloured background the raw status colour may be unreadable.
+    /// On a dark primary → brighten toward white. On a light primary → darken toward black.
+    /// On no special background → return as-is.
+    private func adaptedStatusColor(_ base: Color) -> Color {
+        guard isVibrant || isSubtle || isGradient else { return base }
+        if operatorColours.primaryIsLight {
+            // Bright/light background — darken the status colour for contrast.
+            return base.mix(with: .black, by: 0.35)
+        } else {
+            // Dark background — lighten the status colour so it pops.
+            return base.mix(with: .white, by: 0.45)
+        }
     }
 }

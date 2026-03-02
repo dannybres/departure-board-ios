@@ -35,12 +35,13 @@ private struct SplitFlapText: View {
     let animated: Bool
 
     @State private var displayed: String
+    @State private var animationTask: Task<Void, Never>?
 
     init(_ text: String, trigger: Int, animated: Bool = true) {
         self.text = text
         self.trigger = trigger
         self.animated = animated
-        _displayed = State(initialValue: animated ? String(repeating: "·", count: text.count) : text)
+        _displayed = State(initialValue: text)
     }
 
     var body: some View {
@@ -48,12 +49,15 @@ private struct SplitFlapText: View {
             Text(text).opacity(0)
             Text(displayed)
         }
-        .task(id: trigger) {
-            if animated {
-                await animate(to: text)
-            } else {
-                displayed = text
-            }
+        .onChange(of: trigger) {
+            guard animated else { displayed = text; return }
+            animationTask?.cancel()
+            animationTask = Task { await animate(to: text) }
+        }
+        .onDisappear {
+            animationTask?.cancel()
+            animationTask = nil
+            displayed = text
         }
     }
 
@@ -619,18 +623,7 @@ struct ContentView: View {
                 .navigationTitle("Departure Board")
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
-                        HStack {
-                            #if DEBUG
-                            Button {
-                                nextServiceStore = NextServiceStore()
-                                Task {
-                                    try? await Task.sleep(for: .milliseconds(1500))
-                                    await fetchNextServices()
-                                }
-                            } label: { Image(systemName: "arrow.trianglehead.counterclockwise") }
-                            #endif
-                            Button { showSettings = true } label: { Image(systemName: "gearshape") }
-                        }
+                        Button { showSettings = true } label: { Image(systemName: "gearshape") }
                     }
                 }
                 .sheet(isPresented: $showSettings) {
@@ -709,20 +702,7 @@ struct ContentView: View {
                     .navigationTitle("Departure Board")
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
-                            HStack {
-                                #if DEBUG
-                                Button {
-                                    nextServiceStore.summaries = [:]
-                                    nextServiceStore.refreshIDs = [:]
-                                    nextServiceStore.failedIDs = []
-                                    Task {
-                                        try? await Task.sleep(for: .milliseconds(1500))
-                                        await fetchNextServices()
-                                    }
-                                } label: { Image(systemName: "arrow.trianglehead.counterclockwise") }
-                                #endif
-                                Button { showSettings = true } label: { Image(systemName: "gearshape") }
-                            }
+                            Button { showSettings = true } label: { Image(systemName: "gearshape") }
                         }
                     }
                     .sheet(isPresented: $showSettings) {
