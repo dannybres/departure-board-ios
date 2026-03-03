@@ -11,6 +11,7 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
 
     @ObservedObject var viewModel: StationViewModel
+    @StateObject private var trial = TrialManager.shared
     @AppStorage("nearbyStationCount") var nearbyCount: Int = 5
     @AppStorage("recentFilterCount") var recentFilterCount: Int = 3
     @AppStorage("showRecentFilters") var showRecentFilters: Bool = true
@@ -21,7 +22,7 @@ struct SettingsView: View {
     @AppStorage("stationNamesSmallCaps") var stationNamesSmallCaps: Bool = false
     @AppStorage(SharedDefaults.Keys.rowTheme) var rowThemeRaw: String = RowTheme.none.rawValue
     @AppStorage(SharedDefaults.Keys.colourVibrancy) var colourVibrancyRaw: String = ColourVibrancy.vibrant.rawValue
-    @AppStorage(SharedDefaults.Keys.widgetRowTheme, store: SharedDefaults.shared) var widgetRowThemeRaw: String = cWidgetTheme.none.rawValue
+    @AppStorage(SharedDefaults.Keys.widgetRowTheme, store: SharedDefaults.shared) var widgetRowThemeRaw: String = "none"
     @AppStorage(SharedDefaults.Keys.widgetColourMode, store: SharedDefaults.shared) var widgetColourMode: String = "brand"
     @AppStorage(SharedDefaults.Keys.widgetSplitFlap, store: SharedDefaults.shared) var widgetSplitFlap: Bool = false
     @AppStorage("autoLoadMode") var autoLoadMode: String = "off"
@@ -65,6 +66,8 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            TrialBannerSection(daysRemaining: trial.daysRemaining, isExpired: trial.isExpired)
+
             Section {
                 VStack(alignment: .leading, spacing: 4) {
                     Stepper("Show \(nearbyCount) stations", value: $nearbyCount, in: 1...25)
@@ -442,6 +445,26 @@ struct SettingsView: View {
                             .font(.caption)
                             .lineLimit(1)
                             .minimumScaleFactor(0.5)
+                    }
+                    HStack {
+                        Text("Trial Start")
+                        Spacer()
+                        Text(trial.firstLaunchDate.formatted(date: .abbreviated, time: .shortened))
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                    }
+                    HStack(spacing: 12) {
+                        Button("− 5 Days") { TrialManager.shared.shiftForDebug(days: -5) }
+                            .buttonStyle(.bordered)
+                        Button("+ 5 Days") { TrialManager.shared.shiftForDebug(days: 5) }
+                            .buttonStyle(.bordered)
+                        Spacer()
+                        Button(role: .destructive) {
+                            TrialManager.shared.resetForDebug()
+                        } label: {
+                            Text("Reset")
+                        }
+                        .buttonStyle(.bordered)
                     }
                 }
             }
@@ -894,6 +917,87 @@ struct SettingsView: View {
 
 private struct FavouritesExport: Codable {
     var favourites: [String]
+}
+
+// MARK: - Trial banner
+
+private struct TrialBannerSection: View {
+    let daysRemaining: Int
+    let isExpired: Bool
+
+    @State private var showSubscribe = false
+    private var isUrgent: Bool { daysRemaining <= 7 }
+
+    var body: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 12) {
+                // Header row
+                HStack(spacing: 10) {
+                    Image(systemName: isExpired ? "lock.fill" : "clock.fill")
+                        .font(.title2)
+                        .foregroundStyle(isExpired ? .red : (isUrgent ? .orange : Theme.brand))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(isExpired ? "Trial Ended" : "Free Trial")
+                            .font(.headline)
+                        Text(isExpired
+                             ? "Your 28-day trial has expired."
+                             : daysRemaining == 1
+                                 ? "1 day remaining"
+                                 : "\(daysRemaining) days remaining")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+                }
+
+                // Progress bar (only while trial is active)
+                if !isExpired {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(Color(.systemFill))
+                                .frame(height: 6)
+                            Capsule()
+                                .fill(isUrgent ? Color.orange : Theme.brand)
+                                .frame(width: geo.size.width * CGFloat(daysRemaining) / CGFloat(TrialManager.trialDays), height: 6)
+                        }
+                    }
+                    .frame(height: 6)
+                }
+
+                // Body copy
+                Text(isExpired
+                     ? "Subscribe to keep using widgets, themes, travel mode, coach details, and more."
+                     : "Enjoying Departure Board? Subscribe to unlock widgets, themes, travel mode, coach details, and more — and keep everything working after your trial ends.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                // CTA button
+                Button {
+                    showSubscribe = true
+                } label: {
+                    HStack {
+                        Spacer()
+                        Text(isExpired ? "Subscribe to Continue" : "Subscribe & Unlock Everything")
+                            .font(.subheadline.bold())
+                        Spacer()
+                    }
+                    .padding(.vertical, 10)
+                    .background(isExpired ? Color.red : Theme.brand, in: RoundedRectangle(cornerRadius: 10))
+                    .foregroundStyle(.white)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.vertical, 4)
+        } header: {
+            Text(isExpired ? "Subscription Required" : "Your Trial")
+        }
+        .sheet(isPresented: $showSubscribe) {
+            SubscribeView()
+        }
+    }
 }
 
 struct FavouritesDocument: FileDocument {

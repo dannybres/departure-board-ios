@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 // MARK: - Deep Link
 
@@ -66,6 +67,8 @@ struct Departure_BoardApp: App {
     init() {
         SharedDefaults.migrateIfNeeded()
         UserDefaults.standard.register(defaults: ["autoLoadMode": "off"])
+        // Explicitly clear any dynamic quick actions so iOS does not show them.
+        UIApplication.shared.shortcutItems = []
     }
 
     var body: some Scene {

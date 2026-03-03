@@ -224,12 +224,54 @@ private struct NextServiceStore {
     var lastUpdate: Date? = nil
 }
 
+/// Standalone toolbar button showing trial status alongside the gear icon.
+/// While the trial is active it shows the days remaining as a pill (taps to Settings).
+/// When expired it becomes a "Subscribe" CTA that opens the paywall directly.
+private struct TrialToolbarButton: View {
+    let daysRemaining: Int
+    let isExpired: Bool
+    let openSettings: () -> Void
+
+    @State private var showSubscribe = false
+    private var isUrgent: Bool { daysRemaining <= 7 }
+
+    var body: some View {
+        Button {
+            if isExpired { showSubscribe = true } else { openSettings() }
+        } label: {
+            if isExpired {
+                Text("Subscribe")
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.red, in: Capsule())
+            } else {
+                HStack(spacing: 3) {
+                    Image(systemName: "clock")
+                        .font(.caption2)
+                    Text("\(daysRemaining)d")
+                        .font(.caption.bold())
+                }
+                .foregroundStyle(isUrgent ? .red : Theme.brand)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background((isUrgent ? Color.red : Theme.brand).opacity(0.15), in: Capsule())
+            }
+        }
+        .sheet(isPresented: $showSubscribe) {
+            SubscribeView()
+        }
+    }
+}
+
 struct ContentView: View {
 
     @Binding var deepLink: DeepLink?
 
     @StateObject private var viewModel = StationViewModel()
     @StateObject private var locationManager = LocationManager()
+    @StateObject private var trial = TrialManager.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var searchText = ""
     @State private var navigationPath = NavigationPath()
@@ -657,6 +699,9 @@ struct ContentView: View {
                         }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
+                        TrialToolbarButton(daysRemaining: trial.daysRemaining, isExpired: trial.isExpired, openSettings: { showSettings = true })
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
                         Button { showSettings = true } label: { Image(systemName: "gearshape") }
                     }
                 }
@@ -758,6 +803,9 @@ struct ContentView: View {
                 padStationListView
                     .navigationTitle("Departure Board")
                     .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            TrialToolbarButton(daysRemaining: trial.daysRemaining, isExpired: trial.isExpired, openSettings: { showSettings = true })
+                        }
                         ToolbarItem(placement: .topBarTrailing) {
                             Button { showSettings = true } label: { Image(systemName: "gearshape") }
                         }
