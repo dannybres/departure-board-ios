@@ -29,6 +29,31 @@ struct NextServiceSheetItem: Identifiable {
     var id: String { service.serviceId }
 }
 
+struct PremiumLockPill: View {
+    var body: some View {
+        Text("Unlock needed")
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(Theme.brand, in: Capsule())
+    }
+}
+
+struct PremiumLockedDescription: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            PremiumLockPill()
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
 private struct SplitFlapText: View {
     let text: String
     let trigger: Int
@@ -272,10 +297,13 @@ struct ContentView: View {
     @StateObject private var viewModel = StationViewModel()
     @StateObject private var locationManager = LocationManager()
     @StateObject private var trial = TrialManager.shared
+    @EnvironmentObject private var entitlement: EntitlementManager
     @Environment(\.scenePhase) private var scenePhase
     @State private var searchText = ""
     @State private var navigationPath = NavigationPath()
     @State private var showSettings = false
+    @State private var showSubscribe = false
+    @State private var subscribeFeature: PaywallFeature = .all
     @State private var isEditingFavourites = false
     @State private var hasPushedNearbyStation = false
     @State private var cachedNearbyStations: [Station] = []
@@ -301,11 +329,51 @@ struct ContentView: View {
     @State private var selectedStation: StationDestination?
     @State private var selectedService: Service?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    private let freeNearbyLimit = 3
+    private let freeFavouriteLimit = 1
 
     // MARK: - Unified Favourites
 
     private var favouriteBoardIDs: [String] {
         (try? JSONDecoder().decode([String].self, from: favouriteBoardsData)) ?? []
+    }
+
+    private var hasPremiumAccess: Bool {
+        entitlement.hasPremiumAccess
+    }
+
+    private var effectiveShowNextServiceOnFavourites: Bool {
+        hasPremiumAccess && showNextServiceOnFavourites
+    }
+
+    private var effectiveStationNamesSmallCaps: Bool {
+        hasPremiumAccess && stationNamesSmallCaps
+    }
+
+    private var effectiveNearbyStationCount: Int {
+        hasPremiumAccess ? nearbyCount : min(nearbyCount, freeNearbyLimit)
+    }
+
+    private var hasLockedFavourites: Bool {
+        !hasPremiumAccess && favouriteDisplayItems.count > freeFavouriteLimit
+    }
+
+    private func presentSubscribe(_ feature: PaywallFeature = .all) {
+        subscribeFeature = feature
+        showSubscribe = true
+        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+    }
+
+    private func requirePremium(_ feature: PaywallFeature = .all) -> Bool {
+        guard hasPremiumAccess else {
+            presentSubscribe(feature)
+            return false
+        }
+        return true
+    }
+
+    private func isFavouriteEntryLocked(_ index: Int) -> Bool {
+        !hasPremiumAccess && index >= freeFavouriteLimit
     }
 
     private func setFavouriteBoards(_ value: [String]) {
@@ -396,6 +464,10 @@ struct ContentView: View {
     }
 
     private func moveFavourite(from source: IndexSet, to destination: Int) {
+        guard hasPremiumAccess else {
+            presentSubscribe(.favourites)
+            return
+        }
         var current = favouriteBoardIDs
         current.move(fromOffsets: source, toOffset: destination)
         setFavouriteBoards(current)
@@ -405,6 +477,10 @@ struct ContentView: View {
         var current = favouriteBoardIDs
         let id = SharedDefaults.boardID(crs: station.crsCode, boardType: boardType)
         guard !current.contains(id) else { return }
+        if !hasPremiumAccess && current.count >= freeFavouriteLimit {
+            presentSubscribe(.favourites)
+            return
+        }
         current.append(id)
         setFavouriteBoards(current)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -430,6 +506,10 @@ struct ContentView: View {
         SharedDefaults.removeRecentFilter(id: id)
         var boards = favouriteBoardIDs
         guard !boards.contains(id) else { return }
+        if !hasPremiumAccess && boards.count >= freeFavouriteLimit {
+            presentSubscribe(.favourites)
+            return
+        }
         boards.append(id)
         setFavouriteBoards(boards)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -465,7 +545,7 @@ struct ContentView: View {
     // MARK: - Next Service Fetch
 
     private func fetchNextServices() async {
-        guard showNextServiceOnFavourites else { return }
+        guard effectiveShowNextServiceOnFavourites else { return }
         let items = favouriteDisplayItems
         guard !items.isEmpty else { return }
 
@@ -566,6 +646,9 @@ struct ContentView: View {
     // MARK: - Auto-Load
 
     private func resolveAutoLoadDestination() -> StationDestination? {
+        if !hasPremiumAccess && (autoLoadMode == "favourite" || autoLoadMode == "favouriteOrNearest") {
+            return nil
+        }
         switch autoLoadMode {
         case "nearest":
             guard let station = nearbyStations.first else { return nil }
@@ -653,7 +736,7 @@ struct ContentView: View {
                 let loc1 = CLLocation(latitude: $1.latitude, longitude: $1.longitude)
                 return loc0.distance(from: userLocation) < loc1.distance(from: userLocation)
             }
-            .prefix(nearbyCount)
+            .prefix(effectiveNearbyStationCount)
             .map { $0 }
     }
 
@@ -680,7 +763,10 @@ struct ContentView: View {
                 phoneBody
             }
         }
-        .environment(\.stationNamesSmallCaps, stationNamesSmallCaps)
+        .environment(\.stationNamesSmallCaps, effectiveStationNamesSmallCaps)
+        .sheet(isPresented: $showSubscribe) {
+            SubscribeView(initialFeature: subscribeFeature)
+        }
     }
 
     // MARK: - Phone Layout
@@ -742,6 +828,11 @@ struct ContentView: View {
                     StationInfoView(crs: crs, onDismiss: {
                         stationInfoCrs = nil
                     }, onNavigate: { boardType in
+                        guard hasPremiumAccess else {
+                            stationInfoCrs = nil
+                            presentSubscribe(.stationInfo)
+                            return
+                        }
                         if let station = StationCache.load()?.first(where: { $0.crsCode == crs }) {
                             stationInfoCrs = nil
                             navigationPath.append(StationDestination(station: station, boardType: boardType))
@@ -749,6 +840,9 @@ struct ContentView: View {
                     })
                 }
                 .sheet(item: $nextServiceStore.sheetItem) { item in
+                    if !hasPremiumAccess {
+                        SubscribeView(initialFeature: .serviceDetail)
+                    } else {
                     NavigationStack {
                         let scheduled = item.boardType == .departures ? item.service.std : item.service.sta
                         let location = item.boardType == .departures
@@ -764,6 +858,7 @@ struct ContentView: View {
                             }
                     }
                     .tint(Theme.brand)
+                    }
                 }
                 .navigationDestination(for: StationDestination.self) { dest in
                     DepartureBoardView(station: dest.station, initialBoardType: dest.boardType, pendingServiceID: dest.pendingServiceID, initialFilterStation: dest.filterStation, initialFilterType: dest.filterType, navigationPath: $navigationPath)
@@ -821,15 +916,20 @@ struct ContentView: View {
                         }
                         .tint(Theme.brand)
                     }
-                    .sheet(item: $stationInfoCrs) { crs in
-                        StationInfoView(crs: crs, onDismiss: {
+                .sheet(item: $stationInfoCrs) { crs in
+                    StationInfoView(crs: crs, onDismiss: {
+                        stationInfoCrs = nil
+                    }, onNavigate: { boardType in
+                        guard hasPremiumAccess else {
                             stationInfoCrs = nil
-                        }, onNavigate: { boardType in
-                            if let station = StationCache.load()?.first(where: { $0.crsCode == crs }) {
-                                stationInfoCrs = nil
-                                navigate(to: StationDestination(station: station, boardType: boardType))
-                            }
-                        })
+                            presentSubscribe(.stationInfo)
+                            return
+                        }
+                        if let station = StationCache.load()?.first(where: { $0.crsCode == crs }) {
+                            stationInfoCrs = nil
+                            navigate(to: StationDestination(station: station, boardType: boardType))
+                        }
+                    })
                     }
                     .onAppear { locationManager.refresh(); updateNearbyStations() }
                     .onChange(of: scenePhase) {
@@ -883,13 +983,17 @@ struct ContentView: View {
         } detail: {
             Group {
                 if let service = selectedService, let dest = selectedStation {
-                    ServiceDetailView(
-                        service: service,
-                        boardType: dest.boardType,
-                        navigationPath: $navigationPath,
-                        onNavigateToStation: { navigate(to: $0) }
-                    )
-                    .id(service.serviceId)
+                    if hasPremiumAccess {
+                        ServiceDetailView(
+                            service: service,
+                            boardType: dest.boardType,
+                            navigationPath: $navigationPath,
+                            onNavigateToStation: { navigate(to: $0) }
+                        )
+                        .id(service.serviceId)
+                    } else {
+                        SubscribeView(initialFeature: .serviceDetail)
+                    }
                 } else {
                     ContentUnavailableView("Select a Service", systemImage: "train.side.front.car", description: Text("Choose a service from the board to view its details"))
                 }
@@ -923,6 +1027,8 @@ struct ContentView: View {
             }
             .onChange(of: locationManager.userLocation) { updateNearbyStations() }
             .onChange(of: viewModel.stations) { updateNearbyStations() }
+            .onChange(of: nearbyCount) { updateNearbyStations() }
+            .onChange(of: entitlement.hasPremiumAccess) { updateNearbyStations() }
             .onChange(of: favouriteBoardsData) { Task { await fetchNextServices() } }
             .onChange(of: navigationPath) {
                 guard navigationPath.isEmpty else { return }
@@ -951,10 +1057,11 @@ struct ContentView: View {
         if !isSearching {
             if !favouriteDisplayItems.isEmpty {
                 Section {
-                    ForEach(favouriteDisplayItems) { item in
+                    ForEach(Array(favouriteDisplayItems.enumerated()), id: \.element.id) { index, item in
                         switch item {
                         case .station(let station, let boardType):
-                            favouriteStationRow(station, boardType: boardType, itemID: item.id)
+                            favouriteStationRow(station, boardType: boardType, itemID: item.id, isLocked: isFavouriteEntryLocked(index))
+                                .opacity(isFavouriteEntryLocked(index) ? 0.45 : 1)
                                 .swipeActions(edge: .trailing) {
                                     Button {
                                         removeFavouriteByID(item.id)
@@ -964,7 +1071,8 @@ struct ContentView: View {
                                     .tint(.red)
                                 }
                         case .filter(let parsed, _, _):
-                            filterRow(parsed, showStar: true)
+                            filterRow(parsed, showStar: true, isLocked: isFavouriteEntryLocked(index))
+                                .opacity(isFavouriteEntryLocked(index) ? 0.45 : 1)
                                 .swipeActions(edge: .trailing) {
                                     Button {
                                         removeFilterFromFavourites(id: parsed.id)
@@ -979,17 +1087,28 @@ struct ContentView: View {
                 } header: {
                     HStack {
                         sectionHeader("Favourites", icon: "star.fill")
-                        if showNextServiceOnFavourites, let label = fuzzyUpdateLabel {
+                        if effectiveShowNextServiceOnFavourites, let label = fuzzyUpdateLabel {
                             Text(label)
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
                                 .textCase(nil)
                         }
                         Spacer()
-                        Button(isEditingFavourites ? "Done" : "Edit") {
-                            withAnimation {
-                                isEditingFavourites.toggle()
+                        if hasLockedFavourites {
+                            Button {
+                                presentSubscribe(.favourites)
+                            } label: {
+                                PremiumLockPill()
+                                    .textCase(nil)
                             }
+                            .buttonStyle(.plain)
+                        }
+                        Button(isEditingFavourites ? "Done" : "Edit") {
+                            guard hasPremiumAccess else {
+                                presentSubscribe(.favourites)
+                                return
+                            }
+                            withAnimation { isEditingFavourites.toggle() }
                         }
                         .font(.subheadline)
                         .textCase(nil)
@@ -1058,7 +1177,7 @@ struct ContentView: View {
                             .background(Theme.brand.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
                         VStack(alignment: .leading, spacing: 1) {
                             Text(match.name)
-                                .font(Font.headline.smallCapsIfEnabled(stationNamesSmallCaps))
+                                .font(Font.headline.smallCapsIfEnabled(effectiveStationNamesSmallCaps))
                             Text("Exact CRS match")
                                 .font(.caption)
                                 .foregroundStyle(Theme.brand)
@@ -1101,6 +1220,10 @@ struct ContentView: View {
     // MARK: - Deep Linking
 
     private func handleDeepLink(_ link: DeepLink) {
+        guard hasPremiumAccess else {
+            presentSubscribe(.widgets)
+            return
+        }
         // Claim the auto-load slot immediately so the location onChange can't
         // race ahead and navigate to the nearest station while we resolve the
         // deep-link station asynchronously.
@@ -1252,6 +1375,7 @@ struct ContentView: View {
         }
 
         Button {
+            guard requirePremium(.stationInfo) else { return }
             stationInfoCrs = station.crsCode
         } label: {
             Label("Station Information", systemImage: "info.circle")
@@ -1266,6 +1390,7 @@ struct ContentView: View {
             let location = boardType == .departures ? svc.destination.first?.locationName : svc.origin.first?.locationName
             Section("Next: " + [scheduled, location].compactMap { $0 }.joined(separator: " · ")) {
                 Button {
+                    guard requirePremium(.serviceDetail) else { return }
                     if horizontalSizeClass == .regular {
                         selectedStation = StationDestination(station: station, boardType: boardType)
                         selectedService = svc
@@ -1329,6 +1454,7 @@ struct ContentView: View {
         }
 
         Button {
+            guard requirePremium(.stationInfo) else { return }
             stationInfoCrs = station.crsCode
         } label: {
             Label("Station Information", systemImage: "info.circle")
@@ -1347,6 +1473,7 @@ struct ContentView: View {
                 let location = parsed.boardType == .departures ? svc.destination.first?.locationName : svc.origin.first?.locationName
                 Section("Next: " + [scheduled, location].compactMap { $0 }.joined(separator: " · ")) {
                     Button {
+                        guard requirePremium(.serviceDetail) else { return }
                         if horizontalSizeClass == .regular {
                             if let station, let filterStation {
                                 selectedStation = StationDestination(station: station, boardType: parsed.boardType, filterStation: filterStation, filterType: filterType)
@@ -1377,7 +1504,10 @@ struct ContentView: View {
                 Button {
                     if let station { navigate(to: StationDestination(station: station, boardType: .arrivals)) }
                 } label: { Label("Arrivals", systemImage: "arrow.down.left") }
-                Button { stationInfoCrs = parsed.crs } label: { Label("Station Info", systemImage: "info.circle") }
+                Button {
+                    guard requirePremium(.stationInfo) else { return }
+                    stationInfoCrs = parsed.crs
+                } label: { Label("Station Info", systemImage: "info.circle") }
                 if let station {
                     Button { openInMaps(station) } label: { Label("Open in Maps", systemImage: "map") }
                 }
@@ -1392,7 +1522,10 @@ struct ContentView: View {
                 Button {
                     if let filterStation { navigate(to: StationDestination(station: filterStation, boardType: .arrivals)) }
                 } label: { Label("Arrivals", systemImage: "arrow.down.left") }
-                Button { stationInfoCrs = filterCrs } label: { Label("Station Info", systemImage: "info.circle") }
+                Button {
+                    guard requirePremium(.stationInfo) else { return }
+                    stationInfoCrs = filterCrs
+                } label: { Label("Station Info", systemImage: "info.circle") }
                 if let filterStation {
                     Button { openInMaps(filterStation) } label: { Label("Open in Maps", systemImage: "map") }
                 }
@@ -1466,7 +1599,7 @@ struct ContentView: View {
         HStack {
             crsPill(station.crsCode)
             VStack(alignment: .leading) {
-                Text(station.name).font(Font.headline.smallCapsIfEnabled(stationNamesSmallCaps))
+                Text(station.name).font(Font.headline.smallCapsIfEnabled(effectiveStationNamesSmallCaps))
             }
             Spacer()
             if hasAnyFavourite(station) {
@@ -1495,7 +1628,7 @@ struct ContentView: View {
         HStack {
             crsPill(station.crsCode)
             VStack(alignment: .leading) {
-                Text(station.name).font(Font.headline.smallCapsIfEnabled(stationNamesSmallCaps))
+                Text(station.name).font(Font.headline.smallCapsIfEnabled(effectiveStationNamesSmallCaps))
             }
             Spacer()
             if hasAnyFavourite(station) {
@@ -1524,10 +1657,10 @@ struct ContentView: View {
             HStack(spacing: 8) {
                 pill()
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(Font.headline.smallCapsIfEnabled(stationNamesSmallCaps))
+                    Text(title).font(Font.headline.smallCapsIfEnabled(effectiveStationNamesSmallCaps))
                     if let filterLabel {
                         Text(filterLabel)
-                            .font(Font.subheadline.smallCapsIfEnabled(stationNamesSmallCaps))
+                            .font(Font.subheadline.smallCapsIfEnabled(effectiveStationNamesSmallCaps))
                             .foregroundStyle(.secondary)
                     }
                     Text(boardType.rawValue.capitalized)
@@ -1553,24 +1686,52 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func favouriteStationRow(_ station: Station, boardType: BoardType, itemID: String) -> some View {
-        NavigationLink(value: StationDestination(station: station, boardType: boardType)) {
-            favouriteRowContent(
-                pill: { crsPill(station.crsCode) },
-                title: station.name,
-                filterLabel: nil,
-                boardType: boardType,
-                trailingIcon: boardType == .departures ? "arrow.up.right" : "arrow.down.left",
-                itemID: itemID,
-                showNextService: showNextServiceOnFavourites,
-                onPillTap: {
-                    if let svc = nextServiceStore.summaries[itemID]?.service {
-                        navigate(to: StationDestination(station: station, boardType: boardType, pendingServiceID: svc.serviceId))
-                    }
+    private func favouriteStationRow(_ station: Station, boardType: BoardType, itemID: String, isLocked: Bool = false) -> some View {
+        Group {
+            if isLocked {
+                Button {
+                    presentSubscribe(.favourites)
+                } label: {
+                    favouriteRowContent(
+                        pill: { crsPill(station.crsCode) },
+                        title: station.name,
+                        filterLabel: nil,
+                        boardType: boardType,
+                        trailingIcon: "lock.fill",
+                        itemID: itemID,
+                        showNextService: false
+                    )
+                    .contentShape(Rectangle())
                 }
-            )
+                .buttonStyle(.plain)
+            } else {
+                NavigationLink(value: StationDestination(station: station, boardType: boardType)) {
+                    favouriteRowContent(
+                        pill: { crsPill(station.crsCode) },
+                        title: station.name,
+                        filterLabel: nil,
+                        boardType: boardType,
+                        trailingIcon: boardType == .departures ? "arrow.up.right" : "arrow.down.left",
+                        itemID: itemID,
+                        showNextService: effectiveShowNextServiceOnFavourites,
+                        onPillTap: {
+                            guard hasPremiumAccess else {
+                                presentSubscribe(.serviceDetail)
+                                return
+                            }
+                            if let svc = nextServiceStore.summaries[itemID]?.service {
+                                navigate(to: StationDestination(station: station, boardType: boardType, pendingServiceID: svc.serviceId))
+                            }
+                        }
+                    )
+                }
+            }
         }
-        .contextMenu { favouriteStationContextMenu(for: station, boardType: boardType) }
+        .contextMenu {
+            if !isLocked {
+                favouriteStationContextMenu(for: station, boardType: boardType)
+            }
+        }
     }
 
     private func nextServiceState(id: String, boardType: BoardType) -> NextServicePillView.ContentState {
@@ -1596,7 +1757,7 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func filterRow(_ parsed: ParsedBoardID, showStar: Bool = false) -> some View {
+    private func filterRow(_ parsed: ParsedBoardID, showStar: Bool = false, isLocked: Bool = false) -> some View {
         if let filterCrs = parsed.filterCrs, let filterType = parsed.filterType {
             let station = viewModel.stations.first(where: { $0.crsCode == parsed.crs })
             let filterStation = viewModel.stations.first(where: { $0.crsCode == filterCrs })
@@ -1607,7 +1768,23 @@ struct ContentView: View {
                 ? "Calling at \(filterStation?.name ?? filterCrs)"
                 : "From \(filterStation?.name ?? filterCrs)"
 
-            if let station, let filterStation {
+            if isLocked {
+                Button {
+                    presentSubscribe(.favourites)
+                } label: {
+                    favouriteRowContent(
+                        pill: { filterCrsPill(fromCrs: fromCrs, toCrs: toCrs) },
+                        title: stationName,
+                        filterLabel: filterLabel,
+                        boardType: parsed.boardType,
+                        trailingIcon: "lock.fill",
+                        itemID: parsed.id,
+                        showNextService: false
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            } else if let station, let filterStation {
                 let dest = StationDestination(station: station, boardType: parsed.boardType, filterStation: filterStation, filterType: filterType)
                 NavigationLink(value: dest) {
                     favouriteRowContent(
@@ -1617,8 +1794,12 @@ struct ContentView: View {
                         boardType: parsed.boardType,
                         trailingIcon: showStar ? "arrow.right.arrow.left" : nil,
                         itemID: parsed.id,
-                        showNextService: showStar && showNextServiceOnFavourites,
+                        showNextService: showStar && effectiveShowNextServiceOnFavourites,
                         onPillTap: {
+                            guard hasPremiumAccess else {
+                                presentSubscribe(.serviceDetail)
+                                return
+                            }
                             if let svc = nextServiceStore.summaries[parsed.id]?.service {
                                 navigate(to: StationDestination(station: station, boardType: parsed.boardType, pendingServiceID: svc.serviceId, filterStation: filterStation, filterType: filterType))
                             }
@@ -1639,7 +1820,7 @@ struct ContentView: View {
                         boardType: parsed.boardType,
                         trailingIcon: showStar ? "arrow.right.arrow.left" : nil,
                         itemID: parsed.id,
-                        showNextService: showStar && showNextServiceOnFavourites
+                        showNextService: showStar && effectiveShowNextServiceOnFavourites
                     )
                     .contentShape(Rectangle())
                 }

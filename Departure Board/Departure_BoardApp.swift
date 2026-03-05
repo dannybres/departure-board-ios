@@ -63,6 +63,7 @@ enum DeepLink: Equatable {
 @main
 struct Departure_BoardApp: App {
     @State private var pendingDeepLink: DeepLink?
+    @StateObject private var entitlement = EntitlementManager.shared
 
     init() {
         SharedDefaults.migrateIfNeeded()
@@ -75,6 +76,7 @@ struct Departure_BoardApp: App {
         WindowGroup {
             ContentView(deepLink: $pendingDeepLink)
                 .tint(Theme.brand)
+                .environmentObject(entitlement)
                 .onOpenURL { url in
                     pendingDeepLink = DeepLink(url: url)
                 }

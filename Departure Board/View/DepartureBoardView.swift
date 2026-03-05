@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Combine
+import UIKit
 
 private struct BoardLoadState {
     var board: DepartureBoard? = nil
@@ -43,6 +44,8 @@ struct DepartureBoardView: View {
     @State private var didAutoNavigate = false
     @State private var timeOffset: Int? = nil
     @State private var showNrccMessages = false
+    @State private var showSubscribe = false
+    @State private var subscribeFeature: PaywallFeature = .all
     @AppStorage(SharedDefaults.Keys.favouriteBoards, store: SharedDefaults.shared) private var favouriteBoardsData: Data = Data()
     @AppStorage(SharedDefaults.Keys.rowTheme) private var rowThemeRaw: String = RowTheme.none.rawValue
     @AppStorage(SharedDefaults.Keys.colourVibrancy) private var colourVibrancyRaw: String = ColourVibrancy.vibrant.rawValue
@@ -51,6 +54,16 @@ struct DepartureBoardView: View {
     private var colourVibrancy: ColourVibrancy { ColourVibrancy(rawValue: colourVibrancyRaw) ?? .vibrant }
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.stationNamesSmallCaps) private var stationNamesSmallCaps
+    @EnvironmentObject private var entitlement: EntitlementManager
+    private let freeFavouriteLimit = 1
+
+    private var effectiveRowTheme: RowTheme {
+        entitlement.hasPremiumAccess ? rowTheme : .none
+    }
+
+    private var effectiveColourVibrancy: ColourVibrancy {
+        entitlement.hasPremiumAccess ? colourVibrancy : .vibrant
+    }
 
     init(station: Station, initialBoardType: BoardType = .departures, pendingServiceID: String? = nil, initialFilterStation: Station? = nil, initialFilterType: String? = nil, selectedService: Binding<Service?>? = nil, onNavigateToStation: ((StationDestination) -> Void)? = nil, navigationPath: Binding<NavigationPath>) {
         self.station = station
@@ -79,6 +92,20 @@ struct DepartureBoardView: View {
 
     private var hasAnyServices: Bool {
         hasTrains || hasBuses
+    }
+
+    private func presentSubscribe(_ feature: PaywallFeature = .all) {
+        subscribeFeature = feature
+        showSubscribe = true
+        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+    }
+
+    private func requirePremium(_ feature: PaywallFeature = .all) -> Bool {
+        guard entitlement.hasPremiumAccess else {
+            presentSubscribe(feature)
+            return false
+        }
+        return true
     }
 
     var body: some View {
@@ -173,6 +200,7 @@ struct DepartureBoardView: View {
                         Image(systemName: filter.station != nil ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                     }
                     Button {
+                        guard requirePremium(.stationInfo) else { return }
                         showInfo = true
                     } label: {
                         Image(systemName: "info.circle")
@@ -181,23 +209,31 @@ struct DepartureBoardView: View {
             }
         }
         .sheet(isPresented: $showInfo) {
-            StationInfoView(crs: station.crsCode, onDismiss: {
-                showInfo = false
-            }, onNavigate: { boardType in
-                showInfo = false
-                selectedBoard = boardType
-            })
+            if entitlement.hasPremiumAccess {
+                StationInfoView(crs: station.crsCode, onDismiss: {
+                    showInfo = false
+                }, onNavigate: { boardType in
+                    showInfo = false
+                    selectedBoard = boardType
+                })
+            } else {
+                SubscribeView(initialFeature: .stationInfo)
+            }
         }
         .sheet(item: $stationInfoCrs) { crs in
-            StationInfoView(crs: crs, onDismiss: {
-                stationInfoCrs = nil
-            }, onNavigate: { boardType in
-                if let station = StationCache.load()?.first(where: { $0.crsCode == crs }) {
+            if entitlement.hasPremiumAccess {
+                StationInfoView(crs: crs, onDismiss: {
                     stationInfoCrs = nil
-                    let dest = StationDestination(station: station, boardType: boardType)
-                    if let onNavigateToStation { onNavigateToStation(dest) } else { navigationPath.append(dest) }
-                }
-            })
+                }, onNavigate: { boardType in
+                    if let station = StationCache.load()?.first(where: { $0.crsCode == crs }) {
+                        stationInfoCrs = nil
+                        let dest = StationDestination(station: station, boardType: boardType)
+                        if let onNavigateToStation { onNavigateToStation(dest) } else { navigationPath.append(dest) }
+                    }
+                })
+            } else {
+                SubscribeView(initialFeature: .stationInfo)
+            }
         }
         .sheet(isPresented: $filter.showSheet) {
             FilterStationSheet(
@@ -223,19 +259,26 @@ struct DepartureBoardView: View {
         }
         .navigationTitle(station.name)
         .navigationBarTitleDisplayMode(.large)
+        .sheet(isPresented: $showSubscribe) {
+            SubscribeView(initialFeature: subscribeFeature)
+        }
         .navigationDestination(for: Service.self) { service in
-            ServiceDetailView(
-                service: service,
-                boardType: selectedBoard,
-                navigationPath: $navigationPath
-            )
-            .onAppear {
-                selectedServiceID = service.serviceId
-            }
-            .onDisappear {
-                withAnimation(.easeOut(duration: 0.6)) {
-                    selectedServiceID = nil
+            if entitlement.hasPremiumAccess {
+                ServiceDetailView(
+                    service: service,
+                    boardType: selectedBoard,
+                    navigationPath: $navigationPath
+                )
+                .onAppear {
+                    selectedServiceID = service.serviceId
                 }
+                .onDisappear {
+                    withAnimation(.easeOut(duration: 0.6)) {
+                        selectedServiceID = nil
+                    }
+                }
+            } else {
+                SubscribeView(initialFeature: .serviceDetail)
             }
         }
         .onChange(of: selectedBoard) {
@@ -249,11 +292,15 @@ struct DepartureBoardView: View {
             if let pendingServiceID, !didAutoNavigate,
                let service = (boardLoad.board?.trainServices ?? []).first(where: { $0.serviceId == pendingServiceID })
                     ?? (boardLoad.board?.busServices ?? []).first(where: { $0.serviceId == pendingServiceID }) {
-                didAutoNavigate = true
-                if let selectedService {
-                    selectedService.wrappedValue = service
+                if entitlement.hasPremiumAccess {
+                    didAutoNavigate = true
+                    if let selectedService {
+                        selectedService.wrappedValue = service
+                    } else {
+                        navigationPath.append(service)
+                    }
                 } else {
-                    navigationPath.append(service)
+                    presentSubscribe(.serviceDetail)
                 }
             }
             while !Task.isCancelled {
@@ -273,6 +320,7 @@ struct DepartureBoardView: View {
             // Show earlier trains button
             Section {
                 Button {
+                    guard requirePremium(.travelMode) else { return }
                     let current = timeOffset ?? 0
                     let newOffset = max(current - 30, -120)
                     timeOffset = newOffset
@@ -287,7 +335,7 @@ struct DepartureBoardView: View {
                     .foregroundStyle(Theme.brand)
                 }
                 .listRowBackground(Theme.brandSubtle)
-                .disabled(timeOffset ?? 0 <= -120)
+                .disabled((timeOffset ?? 0 <= -120) || !entitlement.hasPremiumAccess)
             }
 
             // NRCC messages
@@ -356,6 +404,7 @@ struct DepartureBoardView: View {
             // Show later trains button
             Section {
                 Button {
+                    guard requirePremium(.travelMode) else { return }
                     let current = timeOffset ?? 0
                     timeOffset = current + 30
                     scheduleLoad(debounce: true)
@@ -369,6 +418,7 @@ struct DepartureBoardView: View {
                     .foregroundStyle(Theme.brand)
                 }
                 .listRowBackground(Theme.brandSubtle)
+                .disabled(!entitlement.hasPremiumAccess)
             }
 
             HStack {
@@ -421,11 +471,22 @@ struct DepartureBoardView: View {
         let colours = OperatorColours.entry(for: service.operatorCode)
         let isHighlighted = highlightedServiceID == service.serviceId
 
-        NavigationLink(value: service) {
-            DepartureRow(service: service, boardType: selectedBoard, rowTheme: rowTheme, colourVibrancy: colourVibrancy, operatorColours: colours)
+        Group {
+            if entitlement.hasPremiumAccess {
+                NavigationLink(value: service) {
+                    DepartureRow(service: service, boardType: selectedBoard, rowTheme: effectiveRowTheme, colourVibrancy: effectiveColourVibrancy, operatorColours: colours)
+                }
+            } else {
+                Button {
+                    presentSubscribe(.serviceDetail)
+                } label: {
+                    DepartureRow(service: service, boardType: selectedBoard, rowTheme: effectiveRowTheme, colourVibrancy: effectiveColourVibrancy, operatorColours: colours)
+                }
+                .buttonStyle(.plain)
+            }
         }
         .contextMenu { serviceContextMenu(service) }
-        .listRowBackground(rowBackground(theme: rowTheme, vibrancy: colourVibrancy, colours: colours, isHighlighted: isHighlighted))
+        .listRowBackground(rowBackground(theme: effectiveRowTheme, vibrancy: effectiveColourVibrancy, colours: colours, isHighlighted: isHighlighted))
     }
 
     @ViewBuilder
@@ -510,6 +571,7 @@ struct DepartureBoardView: View {
         }
 
         Button {
+            guard requirePremium(.stationInfo) else { return }
             stationInfoCrs = crs
         } label: {
             Label("Station Information", systemImage: "info.circle")
@@ -540,6 +602,10 @@ struct DepartureBoardView: View {
         if let idx = items.firstIndex(of: id) {
             items.remove(at: idx)
         } else {
+            if !entitlement.hasPremiumAccess && items.count >= freeFavouriteLimit {
+                presentSubscribe(.favourites)
+                return
+            }
             items.append(id)
             if filter.station != nil {
                 SharedDefaults.removeRecentFilter(id: id)

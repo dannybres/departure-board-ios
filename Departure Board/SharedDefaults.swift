@@ -44,6 +44,8 @@ enum SharedDefaults {
         static let widgetRowTheme     = "widgetRowTheme"
         static let widgetColourMode   = "widgetColourMode"
         static let widgetSplitFlap    = "widgetSplitFlap"
+        static let premiumAccessSnapshot = "premiumAccessSnapshot"
+        static let hasActiveSubscription = "hasActiveSubscription"
     }
 
     // MARK: - ID encoding / decoding

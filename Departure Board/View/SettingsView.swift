@@ -7,11 +7,13 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
+import UIKit
 
 struct SettingsView: View {
 
     @ObservedObject var viewModel: StationViewModel
     @StateObject private var trial = TrialManager.shared
+    @EnvironmentObject private var entitlement: EntitlementManager
     @AppStorage("nearbyStationCount") var nearbyCount: Int = 5
     @AppStorage("recentFilterCount") var recentFilterCount: Int = 3
     @AppStorage("showRecentFilters") var showRecentFilters: Bool = true
@@ -32,6 +34,12 @@ struct SettingsView: View {
     @State private var debugTapCount = 0
     @State private var debugTapResetTask: Task<Void, Never>? = nil
     @State private var showDebug = false
+    @State private var showSupportCodeSheet = false
+    @State private var supportCodeInput = ""
+    @State private var supportMessage: String?
+    @State private var showSupportMessage = false
+    @State private var releaseCardImage: UIImage? = nil
+    @State private var showReleaseCardShare = false
     @State private var lastRefresh: Date? = StationCache.lastRefreshDate()
     @State private var liveServiceExample: LiveServiceExample? = nil
     @State private var themePreviewService: Service? = nil
@@ -41,6 +49,13 @@ struct SettingsView: View {
     @State private var showingExporter = false
     @State private var showingImporter = false
     @State private var importResult: ImportResult? = nil
+    @State private var showSubscribe = false
+    @State private var subscribeFeature: PaywallFeature = .all
+    @State private var lastAllowedAutoLoadMode: String = "off"
+    private let freeNearbyLimit = 3
+    private let debugUnlockCode = "Everton"
+    // Suggested support code for redeeming the one-time second trial.
+    private let secondTrialSupportCode = "DB-SECOND-TRIAL-2026"
 
     private struct ImportResult {
         let message: String
@@ -49,7 +64,63 @@ struct SettingsView: View {
         let rejected: [(id: String, reason: String)] // raw ID + explicit rejection reason
     }
 
+    private var hasPremiumAccess: Bool {
+        entitlement.hasPremiumAccess
+    }
+
+    private func requirePremium(_ feature: PaywallFeature = .all) -> Bool {
+        guard hasPremiumAccess else {
+            subscribeFeature = feature
+            showSubscribe = true
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            return false
+        }
+        return true
+    }
+
+    private func handleSupportCodeSubmission() {
+        let code = supportCodeInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        showSupportCodeSheet = false
+
+        if code.caseInsensitiveCompare(debugUnlockCode) == .orderedSame {
+            showDebug = true
+            return
+        }
+
+        if code == secondTrialSupportCode {
+            let redeemed = TrialManager.shared.redeemSecondTrialIfAvailable()
+            supportMessage = redeemed
+                ? "Second trial activated."
+                : "All trials have been used."
+            showSupportMessage = true
+            return
+        }
+
+        supportMessage = "Code incorrect."
+        showSupportMessage = true
+    }
+
+    @MainActor
+    private func shareReleaseCard() {
+        let card = ReleaseCardShareView()
+            .frame(width: 1080, height: 1350)
+            .background(Color.black)
+
+        let renderer = ImageRenderer(content: card)
+        renderer.scale = 1
+        if let image = renderer.uiImage {
+            releaseCardImage = image
+            showReleaseCardShare = true
+        } else {
+            supportMessage = "Failed to render release card."
+            showSupportMessage = true
+        }
+    }
+
     private var autoLoadModeDescription: String {
+        if !entitlement.hasPremiumAccess && (autoLoadMode == "favourite" || autoLoadMode == "favouriteOrNearest") {
+            return "This auto-load mode is premium. During free mode, auto-load falls back to Disabled."
+        }
         switch autoLoadMode {
         case "off":
             return "The app opens on the station list. Nothing is loaded automatically."
@@ -70,10 +141,15 @@ struct SettingsView: View {
 
             Section {
                 VStack(alignment: .leading, spacing: 4) {
-                    Stepper("Show \(nearbyCount) stations", value: $nearbyCount, in: 1...25)
-                    Text("Controls how many nearby stations appear at the top of the station list when location access is enabled. Increase this if you live near several stations you use regularly, or reduce it to keep the list tidy.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Stepper("Show \(hasPremiumAccess ? nearbyCount : min(nearbyCount, freeNearbyLimit)) stations", value: $nearbyCount, in: 1...25)
+                        .disabled(!hasPremiumAccess)
+                    if hasPremiumAccess {
+                        Text("Controls how many nearby stations appear at the top of the station list when location access is enabled. Increase this if you live near several stations you use regularly, or reduce it to keep the list tidy.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        PremiumLockedDescription(text: "Free mode is capped at 3 nearby stations. Subscribe to choose any value up to 25.")
+                    }
                 }
             } header: {
                 Text("Nearby Stations")
@@ -84,27 +160,40 @@ struct SettingsView: View {
             Section {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Show Next Service", isOn: $showNextServiceOnFavourites)
-                    Text("Displays the next scheduled departure time on each favourite card, so you can see at a glance how long you have before your next train — without opening the full board.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if hasPremiumAccess {
+                        Text("Displays the next scheduled departure time on each favourite card, so you can see at a glance how long you have before your next train — without opening the full board.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        PremiumLockedDescription(text: "Displays the next scheduled departure time on each favourite card, so you can see at a glance how long you have before your next train — without opening the full board.")
+                    }
                 }
+                .disabled(!hasPremiumAccess)
                 if showNextServiceOnFavourites {
                     VStack(alignment: .leading, spacing: 4) {
                         Toggle("Tap to Jump to Service", isOn: $nextServiceTappable)
-                        Text("When enabled, tapping the next departure time on a favourites card opens the full service detail — calling points, live delays, and platform. Turn this off if you prefer taps to open the full board instead.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        if hasPremiumAccess {
+                            Text("When enabled, tapping the next departure time on a favourites card opens the full service detail — calling points, live delays, and platform. Turn this off if you prefer taps to open the full board instead.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            PremiumLockedDescription(text: "When enabled, tapping the next departure time on a favourites card opens the full service detail — calling points, live delays, and platform. Turn this off if you prefer taps to open the full board instead.")
+                        }
                     }
+                    .disabled(!hasPremiumAccess)
                     VStack(alignment: .leading, spacing: 4) {
                         Toggle("Split-Flap Refresh", isOn: $splitFlapRefresh)
-                            .disabled(reduceMotion)
-                        Text(reduceMotion
-                            ? "Unavailable because Reduce Motion is enabled in Accessibility settings."
-                            : "Animates departure times with a split-flap board effect whenever live data refreshes. Satisfying to watch, but turn this off if you find the motion distracting or want to reduce battery use.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .disabled(reduceMotion || !hasPremiumAccess)
+                        if hasPremiumAccess {
+                            Text(reduceMotion
+                                ? "Unavailable because Reduce Motion is enabled in Accessibility settings."
+                                : "Animates departure times with a split-flap board effect whenever live data refreshes. Satisfying to watch, but turn this off if you find the motion distracting or want to reduce battery use.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            PremiumLockedDescription(text: "Animates departure times with a split-flap board effect whenever live data refreshes. Satisfying to watch, but turn this off if you find the motion distracting or want to reduce battery use.")
+                        }
                     }
-                    .opacity(reduceMotion ? 0.5 : 1)
                 }
             } header: {
                 Text("Favourites")
@@ -126,6 +215,9 @@ struct SettingsView: View {
                     Text(autoLoadModeDescription)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if !hasPremiumAccess && (autoLoadMode == "favourite" || autoLoadMode == "favouriteOrNearest") {
+                        PremiumLockedDescription(text: "Smart auto-load modes require premium.")
+                    }
                     if autoLoadMode == "favourite" || autoLoadMode == "favouriteOrNearest" {
                         Text("When multiple favourites are within range, the one highest in your favourites list is loaded — not the closest. Reorder your favourites to control which board opens first.")
                             .font(.caption)
@@ -141,9 +233,14 @@ struct SettingsView: View {
             Section {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Station Names in Small Caps", isOn: $stationNamesSmallCaps)
-                    Text("Renders station names throughout the app in small capitals — a more compact typographic style that some people find easier to scan on a long list. This is purely cosmetic and has no effect on functionality.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .disabled(!hasPremiumAccess)
+                    if hasPremiumAccess {
+                        Text("Renders station names throughout the app in small capitals — a more compact typographic style that some people find easier to scan on a long list. This is purely cosmetic and has no effect on functionality.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        PremiumLockedDescription(text: "Small caps requires premium. Your current choice is saved and restored when unlocked.")
+                    }
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Picker("Row Theme", selection: $rowThemeRaw) {
@@ -151,8 +248,9 @@ struct SettingsView: View {
                             Text(theme.displayName).tag(theme.rawValue)
                         }
                     }
+                    .disabled(!hasPremiumAccess)
                     Group {
-                        switch RowTheme(rawValue: rowThemeRaw) ?? .none {
+                        switch hasPremiumAccess ? (RowTheme(rawValue: rowThemeRaw) ?? .none) : .none {
                         case .none:
                             Text("No operator colour coding. All rows use the standard background.")
                         case .trackline:
@@ -178,6 +276,7 @@ struct SettingsView: View {
                             Text(vibrancy.displayName).tag(vibrancy.rawValue)
                         }
                     }
+                    .disabled(!hasPremiumAccess)
                     Group {
                         switch ColourVibrancy(rawValue: colourVibrancyRaw) ?? .vibrant {
                         case .vibrant:
@@ -188,6 +287,9 @@ struct SettingsView: View {
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                }
+                if !hasPremiumAccess {
+                    PremiumLockedDescription(text: "Operator livery themes are disabled in free mode. Your selected theme is saved and restored when unlocked.")
                 }
             } header: {
                 Text("Appearance")
@@ -208,8 +310,9 @@ struct SettingsView: View {
                             Text(theme.displayName).tag(theme.rawValue)
                         }
                     }
+                    .disabled(!hasPremiumAccess)
                     Group {
-                        switch WidgetTheme(rawValue: widgetRowThemeRaw) ?? .none {
+                        switch hasPremiumAccess ? (WidgetTheme(rawValue: widgetRowThemeRaw) ?? .none) : .none {
                         case .none:
                             Text("Plain rows with no colour accent.")
                         case .trackline:
@@ -230,15 +333,25 @@ struct SettingsView: View {
                         Text("Brand Colour").tag("brand")
                         Text("Operator Colours").tag("operator")
                     }
-                    Text("Use the app's brand colour for all accents, or each train operator's own livery colours.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    .disabled(!hasPremiumAccess)
+                    if hasPremiumAccess {
+                        Text("Use the app's brand colour for all accents, or each train operator's own livery colours.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        PremiumLockedDescription(text: "Operator colours in widgets require premium. Free mode always displays the plain style.")
+                    }
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Split-Flap Animations", isOn: $widgetSplitFlap)
-                    Text("Rows animate with a split-flap push effect whenever the widget refreshes or a service drops off the board.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .disabled(!hasPremiumAccess)
+                    if hasPremiumAccess {
+                        Text("Rows animate with a split-flap push effect whenever the widget refreshes or a service drops off the board.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        PremiumLockedDescription(text: "Widget split-flap animations require premium.")
+                    }
                 }
             } header: {
                 Text("Widget Appearance")
@@ -333,6 +446,7 @@ struct SettingsView: View {
             }
             Section {
                 Button {
+                    guard requirePremium(.favourites) else { return }
                     let boards = (try? JSONDecoder().decode([String].self, from: favouriteBoardsData)) ?? []
                     let export = FavouritesExport(favourites: boards)
                     if let data = try? JSONEncoder().encode(export) {
@@ -344,6 +458,7 @@ struct SettingsView: View {
                 }
 
                 Button {
+                    guard requirePremium(.favourites) else { return }
                     importResult = nil
                     showingImporter = true
                 } label: {
@@ -400,7 +515,11 @@ struct SettingsView: View {
                 Text("Favourites Backup")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Export saves all your favourite boards to a JSON file you can share or back up. Import reads a file and appends any favourites not already in your list — existing favourites are never overwritten or removed.\n\nYou can also craft a file by hand. Format: {\"favourites\":[\"MAN-dep\",\"LDS-arr\",\"LIV-dep-to-EUS\"]}. Each entry is CRS-dep or CRS-arr, with an optional -to-CRS or -from-CRS suffix for filtered boards.")
+                    if hasPremiumAccess {
+                        Text("Export saves all your favourite boards to a JSON file you can share or back up. Import reads a file and appends any favourites not already in your list — existing favourites are never overwritten or removed.\n\nYou can also craft a file by hand. Format: {\"favourites\":[\"MAN-dep\",\"LDS-arr\",\"LIV-dep-to-EUS\"]}. Each entry is CRS-dep or CRS-arr, with an optional -to-CRS or -from-CRS suffix for filtered boards.")
+                    } else {
+                        PremiumLockedDescription(text: "Favourites backup requires premium.")
+                    }
                     helpLink("backup")
                 }
             }
@@ -458,6 +577,10 @@ struct SettingsView: View {
                             .buttonStyle(.bordered)
                         Button("+ 5 Days") { TrialManager.shared.shiftForDebug(days: 5) }
                             .buttonStyle(.bordered)
+                        Button("Reset 2nd Trial") {
+                            TrialManager.shared.resetSecondTrialForDebug()
+                        }
+                        .buttonStyle(.bordered)
                         Spacer()
                         Button(role: .destructive) {
                             TrialManager.shared.resetForDebug()
@@ -466,10 +589,15 @@ struct SettingsView: View {
                         }
                         .buttonStyle(.bordered)
                     }
+                    Button {
+                        shareReleaseCard()
+                    } label: {
+                        Label("Share 1.0 Card", systemImage: "square.and.arrow.up")
+                    }
                 }
             }
 
-            // Created by — plain text, tapping 10 times reveals the debug section
+            // Created by — tap 10 times to open support code entry.
             Section {
                 Text("Created by Daniel Breslan")
                     .font(.footnote)
@@ -479,9 +607,10 @@ struct SettingsView: View {
                     .onTapGesture {
                         debugTapCount += 1
                         debugTapResetTask?.cancel()
-                        if debugTapCount >= 10 {
+                        if debugTapCount >= 3 {
                             debugTapCount = 0
-                            showDebug = true
+                            supportCodeInput = ""
+                            showSupportCodeSheet = true
                         } else {
                             debugTapResetTask = Task {
                                 try? await Task.sleep(for: .seconds(2))
@@ -489,6 +618,63 @@ struct SettingsView: View {
                             }
                         }
                     }
+            }
+        }
+        .sheet(isPresented: $showSubscribe) {
+            SubscribeView(initialFeature: subscribeFeature)
+        }
+        .sheet(isPresented: $showSupportCodeSheet) {
+            NavigationStack {
+                Form {
+                    Section("Enter Support Code") {
+                        TextField("Code", text: $supportCodeInput)
+                            .textInputAutocapitalization(.characters)
+                            .autocorrectionDisabled()
+                    }
+                }
+                .navigationTitle("Support")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            showSupportCodeSheet = false
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Submit") {
+                            handleSupportCodeSubmission()
+                        }
+                        .disabled(supportCodeInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showReleaseCardShare) {
+            if let image = releaseCardImage {
+                ActivityShareSheet(activityItems: [image])
+            }
+        }
+        .alert("Support", isPresented: $showSupportMessage, actions: {
+            Button("OK", role: .cancel) {}
+        }, message: {
+            Text(supportMessage ?? "")
+        })
+        .onAppear {
+            lastAllowedAutoLoadMode = autoLoadMode == "nearest" ? "nearest" : "off"
+        }
+        .onChange(of: autoLoadMode) {
+            guard !hasPremiumAccess else {
+                lastAllowedAutoLoadMode = autoLoadMode
+                return
+            }
+            if autoLoadMode == "favourite" || autoLoadMode == "favouriteOrNearest" {
+                subscribeFeature = .autoLoad
+                showSubscribe = true
+                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                autoLoadMode = lastAllowedAutoLoadMode
+            } else if autoLoadMode == "off" || autoLoadMode == "nearest" {
+                lastAllowedAutoLoadMode = autoLoadMode
+            } else {
+                autoLoadMode = lastAllowedAutoLoadMode
             }
         }
         .navigationTitle("Settings")
@@ -613,7 +799,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func widgetPreviewSection() -> some View {
-        let theme = WidgetTheme(rawValue: widgetRowThemeRaw) ?? .none
+        let theme = hasPremiumAccess ? (WidgetTheme(rawValue: widgetRowThemeRaw) ?? .none) : .none
         VStack(alignment: .leading, spacing: 0) {
             // Widget chrome header
             HStack(alignment: .center) {
@@ -633,7 +819,7 @@ struct SettingsView: View {
             .padding(.bottom, 8)
 
             ForEach(Array(widgetMockServices.enumerated()), id: \.offset) { _, service in
-                widgetPreviewRow(service, theme: theme, useOperatorColours: widgetColourMode == "operator")
+                widgetPreviewRow(service, theme: theme, useOperatorColours: hasPremiumAccess && widgetColourMode == "operator")
                     .padding(.vertical, 2)
             }
         }
@@ -740,8 +926,8 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func themePreviewRow() -> some View {
-        let theme = RowTheme(rawValue: rowThemeRaw) ?? .none
-        let vibrancy = ColourVibrancy(rawValue: colourVibrancyRaw) ?? .vibrant
+        let theme = hasPremiumAccess ? (RowTheme(rawValue: rowThemeRaw) ?? .none) : .none
+        let vibrancy = hasPremiumAccess ? (ColourVibrancy(rawValue: colourVibrancyRaw) ?? .vibrant) : .vibrant
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Preview")
@@ -845,6 +1031,7 @@ struct SettingsView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture {
+            guard requirePremium(.all) else { return }
             if let u = URL(string: url) { UIApplication.shared.open(u) }
         }
         .contextMenu {
@@ -852,6 +1039,7 @@ struct SettingsView: View {
                 Label("Copy URL", systemImage: "doc.on.doc")
             }
             Button {
+                guard requirePremium(.all) else { return }
                 if let u = URL(string: url) { UIApplication.shared.open(u) }
             } label: {
                 Label("Open", systemImage: "arrow.up.right.square")
@@ -875,6 +1063,7 @@ struct SettingsView: View {
             }
             .contentShape(Rectangle())
             .onTapGesture {
+                guard requirePremium(.serviceDetail) else { return }
                 if let u = URL(string: url) { UIApplication.shared.open(u) }
             }
             .contextMenu {
@@ -882,6 +1071,7 @@ struct SettingsView: View {
                     Label("Copy URL", systemImage: "doc.on.doc")
                 }
                 Button {
+                    guard requirePremium(.serviceDetail) else { return }
                     if let u = URL(string: url) { UIApplication.shared.open(u) }
                 } label: {
                     Label("Open", systemImage: "arrow.up.right.square")
@@ -1012,5 +1202,123 @@ struct FavouritesDocument: FileDocument {
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         FileWrapper(regularFileWithContents: data)
+    }
+}
+
+private struct ActivityShareSheet: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+private struct ReleaseCardShareView: View {
+    private struct Highlight: Identifiable {
+        let id = UUID()
+        let icon: String
+        let title: String
+        let detail: String
+    }
+
+    private let highlights: [Highlight] = [
+        .init(icon: "tram.fill", title: "Live UK Rail Boards", detail: "2,500+ stations • departures & arrivals in seconds"),
+        .init(icon: "star.fill", title: "Smarter Favourites", detail: "Saved boards, recent filters, and next-service glance cards"),
+        .init(icon: "rectangle.3.group.fill", title: "Widgets + Lock Screen", detail: "Single and dual boards with quick tap-through"),
+        .init(icon: "info.circle.fill", title: "Deep Service & Station Info", detail: "Calling points, platforms, facilities, and disruption context")
+    ]
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 11/255, green: 16/255, blue: 29/255),
+                    Color(red: 14/255, green: 42/255, blue: 56/255),
+                    Color(red: 8/255, green: 11/255, blue: 18/255)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            VStack(alignment: .leading, spacing: 26) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("DEPARTURE BOARD")
+                        .font(.system(size: 34, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text("Version 1.0")
+                        .font(.system(size: 54, weight: .black, design: .rounded))
+                        .foregroundStyle(Theme.brand)
+                    Text("Built to get you to your train, faster.")
+                        .font(.system(size: 24, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+
+                HStack(spacing: 14) {
+                    statPill(value: "60s", label: "Live Refresh")
+                    statPill(value: "5m", label: "Widget Updates")
+                    statPill(value: "28d", label: "Free Trial")
+                }
+
+                VStack(spacing: 12) {
+                    ForEach(highlights) { item in
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: item.icon)
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundStyle(Theme.brand)
+                                .frame(width: 30, height: 30)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.title)
+                                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white)
+                                Text(item.detail)
+                                    .font(.system(size: 18, weight: .medium, design: .rounded))
+                                    .foregroundStyle(.white.opacity(0.82))
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.vertical, 8)
+                    }
+                }
+                .padding(24)
+                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 24))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 24)
+                        .stroke(.white.opacity(0.1), lineWidth: 1)
+                }
+
+                Spacer(minLength: 0)
+
+                HStack {
+                    Label("Made by Daniel Breslan", systemImage: "sparkles")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.9))
+                    Spacer()
+                    Text("Launch Build · 2026")
+                        .font(.system(size: 16, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+            }
+            .padding(56)
+        }
+    }
+
+    private func statPill(value: String, label: String) -> some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.system(size: 28, weight: .black, design: .rounded))
+                .foregroundStyle(.white)
+            Text(label.uppercased())
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.82))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+        .background(Theme.brand.opacity(0.20), in: RoundedRectangle(cornerRadius: 16))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Theme.brand.opacity(0.45), lineWidth: 1)
+        }
     }
 }

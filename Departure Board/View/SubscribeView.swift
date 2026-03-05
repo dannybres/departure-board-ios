@@ -7,6 +7,30 @@ import SwiftUI
 
 // MARK: - Page model
 
+enum PaywallFeature {
+    case widgets
+    case themes
+    case favourites
+    case travelMode
+    case serviceDetail
+    case stationInfo
+    case autoLoad
+    case all
+
+    var page: Int {
+        switch self {
+        case .widgets: 0
+        case .themes: 1
+        case .favourites: 2
+        case .travelMode: 3
+        case .serviceDetail: 4
+        case .stationInfo: 5
+        case .autoLoad: 6
+        case .all: 7
+        }
+    }
+}
+
 private struct PaywallPage: Identifiable {
     let id: Int
     let icon: String
@@ -20,7 +44,13 @@ private struct PaywallPage: Identifiable {
 struct SubscribeView: View {
 
     @Environment(\.dismiss) private var dismiss
-    @State private var currentPage = 0
+    private let initialFeature: PaywallFeature
+    @State private var currentPage: Int
+
+    init(initialFeature: PaywallFeature = .all) {
+        self.initialFeature = initialFeature
+        _currentPage = State(initialValue: initialFeature.page)
+    }
 
     private let pages: [PaywallPage] = [
         PaywallPage(
@@ -86,6 +116,9 @@ struct SubscribeView: View {
             header
             carousel
             bottomBar
+        }
+        .onAppear {
+            currentPage = initialFeature.page
         }
         .ignoresSafeArea(edges: .bottom)
         .presentationBackground(.regularMaterial)

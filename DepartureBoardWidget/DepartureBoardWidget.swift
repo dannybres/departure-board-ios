@@ -490,7 +490,9 @@ struct SingleStationWidgetView: View {
     }
 
     var body: some View {
-        if entry.isOutsideUK {
+        if !hasWidgetPremiumAccess() {
+            LockedWidgetView()
+        } else if entry.isOutsideUK {
             TravelView(londonTime: entry.londonTimeString, entryDate: entry.date)
         } else if let station = entry.stations.first {
             StationBlock(station: station, entryDate: entry.date, style: rowStyle, maxRows: maxRows)
@@ -512,7 +514,9 @@ struct DualStationWidgetView: View {
     }
 
     var body: some View {
-        if entry.isOutsideUK {
+        if !hasWidgetPremiumAccess() {
+            LockedWidgetView()
+        } else if entry.isOutsideUK {
             TravelView(londonTime: entry.londonTimeString, entryDate: entry.date)
         } else if entry.stations.isEmpty {
             Text("Tap and hold to choose stations")
@@ -534,6 +538,31 @@ struct DualStationWidgetView: View {
     }
 }
 
+struct LockedWidgetView: View {
+    @Environment(\.widgetFamily) private var family
+
+    var body: some View {
+        VStack(spacing: family == .systemSmall ? 8 : 10) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: family == .systemSmall ? 16 : 18))
+                .foregroundStyle(Theme.brand)
+            Text("Unlock Departure Board to continue using widgets")
+                .font(.caption.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.primary)
+                .lineLimit(family == .systemSmall ? 4 : 3)
+            Button(intent: RefreshWidgetIntent()) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(10)
+    }
+}
+
 enum WidgetRowStyle {
     case minimal  // small widget: no status text, colour the time instead
     case compact  // medium / dual: compact with status
@@ -551,16 +580,23 @@ enum WidgetTheme: String {
 }
 
 private func loadWidgetTheme() -> WidgetTheme {
+    guard hasWidgetPremiumAccess() else { return .none }
     let raw = SharedDefaults.shared.string(forKey: SharedDefaults.Keys.widgetRowTheme) ?? "none"
     return WidgetTheme(rawValue: raw) ?? .none
 }
 
 private func loadWidgetColourMode() -> String {
-    SharedDefaults.shared.string(forKey: SharedDefaults.Keys.widgetColourMode) ?? "brand"
+    guard hasWidgetPremiumAccess() else { return "brand" }
+    return SharedDefaults.shared.string(forKey: SharedDefaults.Keys.widgetColourMode) ?? "brand"
 }
 
 private func loadWidgetSplitFlap() -> Bool {
-    SharedDefaults.shared.bool(forKey: SharedDefaults.Keys.widgetSplitFlap)
+    guard hasWidgetPremiumAccess() else { return false }
+    return SharedDefaults.shared.bool(forKey: SharedDefaults.Keys.widgetSplitFlap)
+}
+
+private func hasWidgetPremiumAccess() -> Bool {
+    SharedDefaults.shared.bool(forKey: SharedDefaults.Keys.premiumAccessSnapshot)
 }
 
 private func widgetAccentColor(for code: String) -> (color: Color, isLight: Bool) {
@@ -613,11 +649,9 @@ struct StationBlock: View {
             HStack(alignment: .center, spacing: 4) {
                 Link(destination: URL(string: "departure://departures/\(station.crs)")!) {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        let sc = hasWidgetPremiumAccess() && UserDefaults.standard.bool(forKey: "stationNamesSmallCaps")
                         Text(station.name)
-                            .font({
-                                let sc = UserDefaults.standard.bool(forKey: "stationNamesSmallCaps")
-                                return Font.caption.weight(.bold).smallCapsIfEnabled(sc)
-                            }())
+                            .font(Font.caption.weight(.bold).smallCapsIfEnabled(sc))
                             .foregroundStyle(Theme.brand)
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
@@ -881,5 +915,3 @@ struct DualStationWidget: Widget {
         .promptsForUserConfiguration()
     }
 }
-
-
