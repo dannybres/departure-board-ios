@@ -53,7 +53,7 @@ struct SettingsView: View {
     @State private var subscribeFeature: PaywallFeature = .all
     @State private var lastAllowedAutoLoadMode: String = "off"
     private let freeNearbyLimit = 3
-    private let debugUnlockCode = "Everton"
+    private let debugMenuCode = "Everton"
     // Suggested support code for redeeming the one-time second trial.
     private let secondTrialSupportCode = "DB-SECOND-TRIAL-2026"
 
@@ -82,7 +82,7 @@ struct SettingsView: View {
         let code = supportCodeInput.trimmingCharacters(in: .whitespacesAndNewlines)
         showSupportCodeSheet = false
 
-        if code.caseInsensitiveCompare(debugUnlockCode) == .orderedSame {
+        if code.caseInsensitiveCompare(debugMenuCode) == .orderedSame {
             showDebug = true
             return
         }
@@ -119,7 +119,7 @@ struct SettingsView: View {
 
     private var autoLoadModeDescription: String {
         if !entitlement.hasPremiumAccess && (autoLoadMode == "favourite" || autoLoadMode == "favouriteOrNearest") {
-            return "This auto-load mode is premium. During free mode, auto-load falls back to Disabled."
+            return "This auto-load mode is a Departure Board Pro feature. During free mode, auto-load falls back to Disabled."
         }
         switch autoLoadMode {
         case "off":
@@ -148,7 +148,7 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
-                        PremiumLockedDescription(text: "Free mode is capped at 3 nearby stations. Subscribe to choose any value up to 25.")
+                        PremiumLockedDescription(text: "Free mode is capped at 3 nearby stations. Get Departure Board Pro to choose any value up to 25.")
                     }
                 }
             } header: {
@@ -216,7 +216,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     if !hasPremiumAccess && (autoLoadMode == "favourite" || autoLoadMode == "favouriteOrNearest") {
-                        PremiumLockedDescription(text: "Smart auto-load modes require premium.")
+                        PremiumLockedDescription(text: "Smart auto-load modes require Departure Board Pro.")
                     }
                     if autoLoadMode == "favourite" || autoLoadMode == "favouriteOrNearest" {
                         Text("When multiple favourites are within range, the one highest in your favourites list is loaded — not the closest. Reorder your favourites to control which board opens first.")
@@ -239,7 +239,7 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
-                        PremiumLockedDescription(text: "Small caps requires premium. Your current choice is saved and restored when unlocked.")
+                        PremiumLockedDescription(text: "Small caps requires Pro. Your current choice is saved and restored when Pro is active.")
                     }
                 }
                 VStack(alignment: .leading, spacing: 4) {
@@ -289,7 +289,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                 }
                 if !hasPremiumAccess {
-                    PremiumLockedDescription(text: "Operator livery themes are disabled in free mode. Your selected theme is saved and restored when unlocked.")
+                    PremiumLockedDescription(text: "Operator livery themes are disabled in free mode. Your selected theme is saved and restored when Pro is active.")
                 }
             } header: {
                 Text("Appearance")
@@ -339,7 +339,7 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
-                        PremiumLockedDescription(text: "Operator colours in widgets require premium. Free mode always displays the plain style.")
+                        PremiumLockedDescription(text: "Operator colours in widgets require Departure Board Pro. Free mode always displays the plain style.")
                     }
                 }
                 VStack(alignment: .leading, spacing: 4) {
@@ -350,7 +350,7 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
-                        PremiumLockedDescription(text: "Widget split-flap animations require premium.")
+                        PremiumLockedDescription(text: "Widget split-flap animations require Departure Board Pro.")
                     }
                 }
             } header: {
@@ -518,7 +518,7 @@ struct SettingsView: View {
                     if hasPremiumAccess {
                         Text("Export saves all your favourite boards to a JSON file you can share or back up. Import reads a file and appends any favourites not already in your list — existing favourites are never overwritten or removed.\n\nYou can also craft a file by hand. Format: {\"favourites\":[\"MAN-dep\",\"LDS-arr\",\"LIV-dep-to-EUS\"]}. Each entry is CRS-dep or CRS-arr, with an optional -to-CRS or -from-CRS suffix for filtered boards.")
                     } else {
-                        PremiumLockedDescription(text: "Favourites backup requires premium.")
+                        PremiumLockedDescription(text: "Favourites backup requires Departure Board Pro.")
                     }
                     helpLink("backup")
                 }
@@ -1160,7 +1160,7 @@ private struct TrialBannerSection: View {
                 // Body copy
                 Text(isExpired
                      ? "Subscribe to keep using widgets, themes, travel mode, coach details, and more."
-                     : "Enjoying Departure Board? Subscribe to unlock widgets, themes, travel mode, coach details, and more — and keep everything working after your trial ends.")
+                     : "Enjoying Departure Board? Subscribe to Departure Board Pro for widgets, themes, travel mode, coach details, and more — and keep everything working after your trial ends.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
@@ -1170,7 +1170,7 @@ private struct TrialBannerSection: View {
                 } label: {
                     HStack {
                         Spacer()
-                        Text(isExpired ? "Subscribe to Continue" : "Subscribe & Unlock Everything")
+                        Text(isExpired ? "Subscribe to Continue" : "Get Departure Board Pro")
                             .font(.subheadline.bold())
                         Spacer()
                     }
@@ -1182,7 +1182,7 @@ private struct TrialBannerSection: View {
             }
             .padding(.vertical, 4)
         } header: {
-            Text(isExpired ? "Subscription Required" : "Your Trial")
+            Text(isExpired ? "Departure Board Pro Required" : "Your Trial")
         }
         .sheet(isPresented: $showSubscribe) {
             SubscribeView()

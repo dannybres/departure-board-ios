@@ -15,7 +15,7 @@ enum DeepLink: Equatable {
     case arrivals(crs: String)
     case station(crs: String)
     case service(crs: String, serviceId: String)
-    case unlock(feature: String)
+    case pro(feature: String)
     case filteredDepartures(crs: String, filterCrs: String, filterType: String)
     case filteredArrivals(crs: String, filterCrs: String, filterType: String)
 
@@ -32,8 +32,8 @@ enum DeepLink: Equatable {
         let filterType = queryItems.first(where: { $0.name == "filterType" })?.value?.lowercased()
 
         switch host.lowercased() {
-        case "unlock":
-            self = .unlock(feature: first.lowercased())
+        case "pro":
+            self = .pro(feature: first.lowercased())
         case "departures":
             let crs = first.uppercased()
             if let filterCrs {

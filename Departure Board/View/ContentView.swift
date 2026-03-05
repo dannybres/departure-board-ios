@@ -31,7 +31,7 @@ struct NextServiceSheetItem: Identifiable {
 
 struct PremiumLockPill: View {
     var body: some View {
-        Text("Unlock needed")
+        Text("Pro needed")
             .font(.system(size: 11, weight: .bold))
             .foregroundStyle(.white)
             .padding(.horizontal, 9)
@@ -1221,7 +1221,7 @@ struct ContentView: View {
 
     private func handleDeepLink(_ link: DeepLink) {
         guard hasPremiumAccess else {
-            if case .unlock(let feature) = link, feature == "lockscreen" {
+            if case .pro(let feature) = link, feature == "lockscreen" {
                 presentSubscribe(.lockScreen)
             } else {
                 presentSubscribe(.widgets)
@@ -1239,7 +1239,7 @@ struct ContentView: View {
         case .arrivals(let c): crs = c
         case .station(let c): crs = c
         case .service(let c, _): crs = c
-        case .unlock:
+        case .pro:
             return
         case .filteredDepartures(let c, _, _): crs = c
         case .filteredArrivals(let c, _, _): crs = c
@@ -1274,7 +1274,7 @@ struct ContentView: View {
                 stationInfoCrs = station.crsCode
             case .service(_, let serviceId):
                 navigate(to: StationDestination(station: station, boardType: .departures, pendingServiceID: serviceId))
-            case .unlock:
+            case .pro:
                 break
             case .filteredDepartures(_, let filterCrs, let filterType):
                 let filterStation = stations.first(where: { $0.crsCode == filterCrs })

@@ -782,7 +782,7 @@ struct LockedWidgetView: View {
             Image(systemName: "lock.fill")
                 .font(.system(size: family == .systemSmall ? 16 : 18))
                 .foregroundStyle(Theme.brand)
-            Text("Unlock Departure Board to continue using widgets")
+            Text("Departure Board Pro is required to continue using widgets")
                 .font(.caption.weight(.semibold))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.primary)
@@ -821,7 +821,7 @@ struct LockScreenWidgetView: View {
 
     private var destination: URL {
         if !entry.hasPremiumAccess {
-            return URL(string: "departure://unlock/lockscreen")!
+            return URL(string: "departure://pro/lockscreen")!
         }
         return boardDeepLinkURL(
             crs: entry.crs,
@@ -851,7 +851,7 @@ struct LockScreenWidgetView: View {
     private var lockedBody: some View {
         switch family {
         case .accessoryInline:
-            Text("Unlock Departure Board")
+            Text("Departure Board Pro")
         case .accessoryCircular:
             ZStack {
                 Circle().strokeBorder(.secondary.opacity(0.4), lineWidth: 2)
@@ -862,7 +862,7 @@ struct LockScreenWidgetView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Departure Board")
                     .font(.caption2.weight(.semibold))
-                Text("Unlock to use Lock Screen widgets")
+                Text("Departure Board Pro is required for Lock Screen widgets")
                     .font(.caption2)
                     .lineLimit(2)
             }

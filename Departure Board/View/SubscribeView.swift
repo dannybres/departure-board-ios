@@ -115,7 +115,7 @@ struct SubscribeView: View {
             id: 8,
             icon: "checkmark.seal.fill",
             title: "Everything in One Subscription",
-            subtitle: "One price unlocks it all — and everything that comes next.",
+            subtitle: "One price gets you everything in Departure Board Pro — and everything that comes next.",
             preview: AnyView(AllFeaturesPreview())
         ),
     ]
@@ -142,7 +142,7 @@ struct SubscribeView: View {
                 .foregroundStyle(Theme.brand)
                 .padding(.top, 28)
 
-            Text("Unlock Departure Board")
+            Text("Departure Board Pro")
                 .font(.title2.bold())
 
             Text("Everything you need to never miss a train.")
