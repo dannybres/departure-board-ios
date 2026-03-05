@@ -693,7 +693,23 @@ struct DepartureBoardView: View {
     }
 
     private func loadBoard(type: BoardType, showLoading: Bool = false, silent: Bool = false) async {
+        let cacheKey = BoardCacheKey(
+            crs: station.crsCode,
+            boardType: type,
+            filterCrs: filter.station?.crsCode,
+            filterType: filter.station == nil ? nil : filter.type
+        )
+
         if showLoading { boardLoad.isLoading = true }
+
+        if let cached = BoardCacheStore.shared.load(for: cacheKey) {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                boardLoad.board = cached.board
+                boardLoad.errorMessage = nil
+            }
+            boardLoad.lastUpdate = cached.loadedAt
+        }
+
         do {
             let result = try await StationViewModel.fetchBoard(for: station.crsCode, type: type, filterCrs: filter.station?.crsCode, filterType: filter.station != nil ? filter.type : nil, timeOffset: timeOffset)
             withAnimation(.easeInOut(duration: 0.3)) {
@@ -702,6 +718,7 @@ struct DepartureBoardView: View {
             }
             if !silent { UINotificationFeedbackGenerator().notificationOccurred(.success) }
             boardLoad.lastUpdate = Date()
+            BoardCacheStore.shared.save(board: result, for: cacheKey, loadedAt: boardLoad.lastUpdate ?? Date())
 
             let route = BoardRoute(
                 crs: station.crsCode,
@@ -717,8 +734,10 @@ struct DepartureBoardView: View {
                 isFavourite: isBoardFavourited
             )
         } catch {
-            if !silent { boardLoad.errorMessage = DepartureBoardView.boardErrorMessages.randomElement()! }
-            if !silent { UINotificationFeedbackGenerator().notificationOccurred(.error) }
+            if boardLoad.board == nil {
+                if !silent { boardLoad.errorMessage = DepartureBoardView.boardErrorMessages.randomElement()! }
+                if !silent { UINotificationFeedbackGenerator().notificationOccurred(.error) }
+            }
         }
         boardLoad.isLoading = false
     }
