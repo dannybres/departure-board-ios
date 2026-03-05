@@ -131,6 +131,10 @@ struct ServiceDetailView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.stationNamesSmallCaps) private var stationNamesSmallCaps
 
+    private var shareServiceURL: URL? {
+        WebShareURL.serviceURL(serviceID: service.serviceId)
+    }
+
     var body: some View {
         Group {
             if loadState.isLoading {
@@ -162,6 +166,13 @@ struct ServiceDetailView: View {
         }
         .navigationTitle(navigationTitleText)
         .toolbar {
+            if let shareServiceURL {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ShareLink(item: shareServiceURL) {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+            }
             if loadState.detail != nil {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {

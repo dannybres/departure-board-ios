@@ -95,6 +95,15 @@ struct DepartureBoardView: View {
         hasTrains || hasBuses
     }
 
+    private var shareBoardURL: URL? {
+        WebShareURL.boardURL(
+            crs: station.crsCode,
+            boardType: selectedBoard,
+            filterCrs: filter.station?.crsCode,
+            filterType: filter.type
+        )
+    }
+
     private func presentSubscribe(_ feature: PaywallFeature = .all) {
         subscribeFeature = feature
         showSubscribe = true
@@ -189,6 +198,11 @@ struct DepartureBoardView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 12) {
+                    if let shareBoardURL {
+                        ShareLink(item: shareBoardURL) {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                    }
                     Button {
                         toggleBoardFavourite()
                     } label: {

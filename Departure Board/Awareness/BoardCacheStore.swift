@@ -1,6 +1,6 @@
 import Foundation
 
-struct BoardCacheKey {
+struct BoardCacheKey: Codable {
     let crs: String
     let boardType: BoardType
     let filterCrs: String?
@@ -26,8 +26,16 @@ struct BoardCacheKey {
 final class BoardCacheStore {
     static let shared = BoardCacheStore()
 
+    struct CachedBoardSummary: Identifiable {
+        let id: String
+        let key: BoardCacheKey
+        let loadedAt: Date
+        let locationName: String
+    }
+
     private struct CachedBoardEnvelope: Codable {
         let loadedAt: Date
+        let key: BoardCacheKey
         let board: DepartureBoard
     }
 
@@ -56,13 +64,46 @@ final class BoardCacheStore {
     func save(board: DepartureBoard, for key: BoardCacheKey, loadedAt: Date = Date()) {
         purgeExpired()
 
-        let envelope = CachedBoardEnvelope(loadedAt: loadedAt, board: board)
+        let envelope = CachedBoardEnvelope(loadedAt: loadedAt, key: key, board: board)
         guard let data = try? JSONEncoder().encode(envelope) else { return }
 
         let dir = cacheDirectoryURL()
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         purgeVariants(for: key)
         try? data.write(to: fileURL(for: key), options: .atomic)
+    }
+
+    func listCachedBoards() -> [CachedBoardSummary] {
+        purgeExpired()
+
+        let dir = cacheDirectoryURL()
+        guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
+            return []
+        }
+
+        return files.compactMap { file in
+            guard let data = try? Data(contentsOf: file),
+                  let envelope = try? JSONDecoder().decode(CachedBoardEnvelope.self, from: data) else {
+                return nil
+            }
+            return CachedBoardSummary(
+                id: file.lastPathComponent,
+                key: envelope.key,
+                loadedAt: envelope.loadedAt,
+                locationName: envelope.board.locationName
+            )
+        }
+        .sorted { $0.loadedAt > $1.loadedAt }
+    }
+
+    func clearAll() {
+        let dir = cacheDirectoryURL()
+        guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
+            return
+        }
+        for file in files {
+            try? fm.removeItem(at: file)
+        }
     }
 
     func purgeExpired() {

@@ -39,6 +39,7 @@ struct SettingsView: View {
     @State private var showDebug = false
     @State private var showSupportCodeSheet = false
     @State private var supportCodeInput = ""
+    @FocusState private var supportCodeFieldFocused: Bool
     @State private var supportMessage: String?
     @State private var showSupportMessage = false
     @State private var releaseCardImage: UIImage? = nil
@@ -56,6 +57,7 @@ struct SettingsView: View {
     @State private var subscribeFeature: PaywallFeature = .all
     @State private var awarenessMessage: String?
     @State private var showAwarenessMessage = false
+    @State private var cachedBoards: [BoardCacheStore.CachedBoardSummary] = []
     @State private var lastAllowedAutoLoadMode: String = "off"
     private let freeNearbyLimit = 3
     private let debugMenuCode = "Everton"
@@ -154,6 +156,15 @@ struct SettingsView: View {
         RoutineEngine.shared.clearHistory()
         awarenessMessage = "Siri and Spotlight history cleared."
         showAwarenessMessage = true
+    }
+
+    private func refreshCachedBoards() {
+        cachedBoards = BoardCacheStore.shared.listCachedBoards()
+    }
+
+    private func clearCachedBoards() {
+        BoardCacheStore.shared.clearAll()
+        refreshCachedBoards()
     }
 
     var body: some View {
@@ -636,11 +647,51 @@ struct SettingsView: View {
                         }
                         .buttonStyle(.bordered)
                     }
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Cached Boards")
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Button("Refresh") {
+                                refreshCachedBoards()
+                            }
+                            .buttonStyle(.bordered)
+                        }
+
+                        if cachedBoards.isEmpty {
+                            Text("No cached boards.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(cachedBoards) { cached in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(cached.locationName) (\(cached.key.crs))")
+                                        .font(.caption.weight(.semibold))
+                                    Text("\(cached.key.boardType.rawValue.capitalized)\(cached.key.filterCrs.map { " • \((cached.key.filterType ?? "to").uppercased()) \($0)" } ?? "")")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                    Text("Cached \(ContentView.fuzzyLabel(from: cached.loadedAt, tick: Date()))")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.vertical, 2)
+                            }
+                            Button(role: .destructive) {
+                                clearCachedBoards()
+                            } label: {
+                                Text("Clear All Cached Boards")
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
                     Button {
                         shareReleaseCard()
                     } label: {
                         Label("Share 1.0 Card", systemImage: "square.and.arrow.up")
                     }
+                }
+                .onAppear {
+                    refreshCachedBoards()
                 }
             }
 
@@ -677,18 +728,26 @@ struct SettingsView: View {
                         TextField("Code", text: $supportCodeInput)
                             .textInputAutocapitalization(.characters)
                             .autocorrectionDisabled()
+                            .focused($supportCodeFieldFocused)
                     }
                 }
                 .navigationTitle("Support")
+                .onAppear {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        supportCodeFieldFocused = true
+                    }
+                }
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") {
                             showSupportCodeSheet = false
+                            supportCodeFieldFocused = false
                         }
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Submit") {
                             handleSupportCodeSubmission()
+                            supportCodeFieldFocused = false
                         }
                         .disabled(supportCodeInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
