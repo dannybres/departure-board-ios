@@ -8,8 +8,10 @@ import SwiftUI
 struct FilterStationSheet: View {
 
     let currentStationCrs: String
+    let currentFilterStation: Station?
     @Binding var filterType: String
     let onSelect: (Station) -> Void
+    let onReverse: (() -> Void)?
 
     @State private var searchText = ""
     @Environment(\.dismiss) private var dismiss
@@ -54,6 +56,22 @@ struct FilterStationSheet: View {
                     .pickerStyle(.segmented)
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets())
+                }
+
+                if let currentFilterStation {
+                    Section("Direction") {
+                        Button {
+                            onReverse?()
+                        } label: {
+                            HStack(spacing: 10) {
+                                Label("Reverse Direction", systemImage: "arrow.left.arrow.right")
+                                Spacer()
+                                Text("\(currentFilterStation.crsCode) \u{2192} \(currentStationCrs)")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                 }
 
                 if !searchedFavourites.isEmpty {

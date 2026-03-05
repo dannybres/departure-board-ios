@@ -46,6 +46,7 @@ struct DepartureBoardView: View {
     @State private var showNrccMessages = false
     @State private var showSubscribe = false
     @State private var subscribeFeature: PaywallFeature = .all
+    @State private var pendingFilterSheetNavigation: StationDestination?
     @AppStorage(SharedDefaults.Keys.favouriteBoards, store: SharedDefaults.shared) private var favouriteBoardsData: Data = Data()
     @AppStorage(SharedDefaults.Keys.rowTheme) private var rowThemeRaw: String = RowTheme.none.rawValue
     @AppStorage(SharedDefaults.Keys.colourVibrancy) private var colourVibrancyRaw: String = ColourVibrancy.vibrant.rawValue
@@ -238,12 +239,23 @@ struct DepartureBoardView: View {
         .sheet(isPresented: $filter.showSheet) {
             FilterStationSheet(
                 currentStationCrs: station.crsCode,
+                currentFilterStation: filter.station,
                 filterType: $filter.type,
                 onSelect: { selected in
                     filter.station = selected
                     filter.showSheet = false
                     SharedDefaults.addRecentFilter(id: SharedDefaults.boardID(crs: station.crsCode, boardType: selectedBoard, filterCrs: selected.crsCode, filterType: filter.type))
                     scheduleLoad(showLoading: true)
+                },
+                onReverse: {
+                    guard let currentFilterStation = filter.station else { return }
+                    pendingFilterSheetNavigation = StationDestination(
+                        station: currentFilterStation,
+                        boardType: selectedBoard,
+                        filterStation: station,
+                        filterType: filter.type
+                    )
+                    filter.showSheet = false
                 }
             )
         }
@@ -286,6 +298,15 @@ struct DepartureBoardView: View {
             timeOffset = nil
             filter.station = nil
             scheduleLoad(showLoading: true)
+        }
+        .onChange(of: filter.showSheet) {
+            guard !filter.showSheet, let destination = pendingFilterSheetNavigation else { return }
+            pendingFilterSheetNavigation = nil
+            if let onNavigateToStation {
+                onNavigateToStation(destination)
+            } else {
+                navigationPath.append(destination)
+            }
         }
         .task {
             await loadBoard(type: selectedBoard, showLoading: true)
