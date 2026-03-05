@@ -46,6 +46,10 @@ enum SharedDefaults {
         static let widgetSplitFlap    = "widgetSplitFlap"
         static let premiumAccessSnapshot = "premiumAccessSnapshot"
         static let hasActiveSubscription = "hasActiveSubscription"
+        static let pendingIntentDeepLinkURL = "pendingIntentDeepLinkURL"
+        static let awarenessSiriSuggestionsEnabled = "awarenessSiriSuggestionsEnabled"
+        static let awarenessSpotlightStationsEnabled = "awarenessSpotlightStationsEnabled"
+        static let awarenessSpotlightFavouritesEnabled = "awarenessSpotlightFavouritesEnabled"
     }
 
     // MARK: - ID encoding / decoding
@@ -116,6 +120,22 @@ enum SharedDefaults {
         if let data = try? JSONEncoder().encode(recents) {
             shared.set(data, forKey: Keys.recentFilters)
         }
+    }
+
+    // MARK: - Pending Intent Deep Link
+
+    static func setPendingIntentDeepLinkURL(_ url: URL) {
+        shared.set(url.absoluteString, forKey: Keys.pendingIntentDeepLinkURL)
+    }
+
+    static func consumePendingIntentDeepLinkURL() -> URL? {
+        guard let raw = shared.string(forKey: Keys.pendingIntentDeepLinkURL),
+              let url = URL(string: raw) else {
+            shared.removeObject(forKey: Keys.pendingIntentDeepLinkURL)
+            return nil
+        }
+        shared.removeObject(forKey: Keys.pendingIntentDeepLinkURL)
+        return url
     }
 
     // MARK: - Widget sync

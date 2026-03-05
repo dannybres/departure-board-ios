@@ -30,6 +30,9 @@ struct SettingsView: View {
     @AppStorage("autoLoadMode") var autoLoadMode: String = "off"
     @AppStorage("autoLoadDistanceMiles") var autoLoadDistanceMiles: Int = 2
     @AppStorage(SharedDefaults.Keys.favouriteBoards, store: SharedDefaults.shared) private var favouriteBoardsData: Data = Data()
+    @AppStorage(AwarenessSettingsKeys.siriSuggestionsEnabled) private var siriSuggestionsEnabled: Bool = true
+    @AppStorage(AwarenessSettingsKeys.spotlightStationsEnabled) private var spotlightStationsEnabled: Bool = true
+    @AppStorage(AwarenessSettingsKeys.spotlightFavouritesEnabled) private var spotlightFavouritesEnabled: Bool = true
     @State private var isRefreshing = false
     @State private var debugTapCount = 0
     @State private var debugTapResetTask: Task<Void, Never>? = nil
@@ -51,6 +54,8 @@ struct SettingsView: View {
     @State private var importResult: ImportResult? = nil
     @State private var showSubscribe = false
     @State private var subscribeFeature: PaywallFeature = .all
+    @State private var awarenessMessage: String?
+    @State private var showAwarenessMessage = false
     @State private var lastAllowedAutoLoadMode: String = "off"
     private let freeNearbyLimit = 3
     private let debugMenuCode = "Everton"
@@ -135,9 +140,25 @@ struct SettingsView: View {
         }
     }
 
+    private func rebuildAwarenessIndex() {
+        let stations = viewModel.stations.isEmpty ? (StationCache.load() ?? []) : viewModel.stations
+        let boards = (try? JSONDecoder().decode([String].self, from: favouriteBoardsData)) ?? []
+        SpotlightIndexer.shared.rebuildAll(stations: stations, boardIDs: boards)
+        awarenessMessage = "Siri and Spotlight index rebuilt."
+        showAwarenessMessage = true
+    }
+
+    private func clearAwarenessData() {
+        SpotlightIndexer.shared.clearAll()
+        ActivityDonor.shared.clearDonations()
+        RoutineEngine.shared.clearHistory()
+        awarenessMessage = "Siri and Spotlight history cleared."
+        showAwarenessMessage = true
+    }
+
     var body: some View {
         Form {
-            TrialBannerSection(daysRemaining: trial.daysRemaining, isExpired: trial.isExpired)
+            TrialBannerSection(daysRemaining: trial.daysRemaining, isExpired: trial.isExpired, hasSubscription: entitlement.hasSubscription)
 
             Section {
                 VStack(alignment: .leading, spacing: 4) {
@@ -554,6 +575,22 @@ struct SettingsView: View {
                 }
             }
 
+            Section {
+                Toggle("Siri Suggestions", isOn: $siriSuggestionsEnabled)
+                Toggle("Search Stations in Spotlight", isOn: $spotlightStationsEnabled)
+                Toggle("Search Favourites in Spotlight", isOn: $spotlightFavouritesEnabled)
+                Button("Rebuild Siri & Spotlight Index") {
+                    rebuildAwarenessIndex()
+                }
+                Button("Clear Siri & Spotlight Data", role: .destructive) {
+                    clearAwarenessData()
+                }
+            } header: {
+                Text("Siri & Search")
+            } footer: {
+                Text("Controls whether Departure Board appears in Siri suggestions and Spotlight search. Clearing removes donated suggestions and local routine history.")
+            }
+
             if showDebug {
                 Section("Debug") {
                     HStack {
@@ -586,6 +623,16 @@ struct SettingsView: View {
                             TrialManager.shared.resetForDebug()
                         } label: {
                             Text("Reset")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    HStack(spacing: 12) {
+                        Button("Subscription Active") {
+                            entitlement.setSubscriptionActive(true)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Button("Subscription Inactive") {
+                            entitlement.setSubscriptionActive(false)
                         }
                         .buttonStyle(.bordered)
                     }
@@ -658,8 +705,38 @@ struct SettingsView: View {
         }, message: {
             Text(supportMessage ?? "")
         })
+        .alert("Siri & Search", isPresented: $showAwarenessMessage, actions: {
+            Button("OK", role: .cancel) {}
+        }, message: {
+            Text(awarenessMessage ?? "")
+        })
         .onAppear {
             lastAllowedAutoLoadMode = autoLoadMode == "nearest" ? "nearest" : "off"
+        }
+        .onChange(of: siriSuggestionsEnabled) {
+            if !siriSuggestionsEnabled {
+                ActivityDonor.shared.clearDonations()
+            }
+        }
+        .onChange(of: spotlightStationsEnabled) {
+            if spotlightStationsEnabled {
+                let stations = viewModel.stations.isEmpty ? (StationCache.load() ?? []) : viewModel.stations
+                SpotlightIndexer.shared.indexStations(stations)
+            } else {
+                SpotlightIndexer.shared.clearAll()
+                let boards = (try? JSONDecoder().decode([String].self, from: favouriteBoardsData)) ?? []
+                SpotlightIndexer.shared.indexFavouriteBoards(boards, stations: viewModel.stations)
+            }
+        }
+        .onChange(of: spotlightFavouritesEnabled) {
+            if spotlightFavouritesEnabled {
+                let boards = (try? JSONDecoder().decode([String].self, from: favouriteBoardsData)) ?? []
+                SpotlightIndexer.shared.indexFavouriteBoards(boards, stations: viewModel.stations)
+            } else {
+                SpotlightIndexer.shared.clearAll()
+                let stations = viewModel.stations.isEmpty ? (StationCache.load() ?? []) : viewModel.stations
+                SpotlightIndexer.shared.indexStations(stations)
+            }
         }
         .onChange(of: autoLoadMode) {
             guard !hasPremiumAccess else {
@@ -1114,6 +1191,7 @@ private struct FavouritesExport: Codable {
 private struct TrialBannerSection: View {
     let daysRemaining: Int
     let isExpired: Bool
+    let hasSubscription: Bool
 
     @State private var showSubscribe = false
     private var isUrgent: Bool { daysRemaining <= 7 }
@@ -1123,18 +1201,20 @@ private struct TrialBannerSection: View {
             VStack(alignment: .leading, spacing: 12) {
                 // Header row
                 HStack(spacing: 10) {
-                    Image(systemName: isExpired ? "lock.fill" : "clock.fill")
+                    Image(systemName: hasSubscription ? "checkmark.seal.fill" : (isExpired ? "lock.fill" : "clock.fill"))
                         .font(.title2)
-                        .foregroundStyle(isExpired ? .red : (isUrgent ? .orange : Theme.brand))
+                        .foregroundStyle(hasSubscription ? .green : (isExpired ? .red : (isUrgent ? .orange : Theme.brand)))
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(isExpired ? "Trial Ended" : "Free Trial")
+                        Text(hasSubscription ? "Departure Board Pro Active" : (isExpired ? "Trial Ended" : "Free Trial"))
                             .font(.headline)
-                        Text(isExpired
-                             ? "Your 28-day trial has expired."
-                             : daysRemaining == 1
-                                 ? "1 day remaining"
-                                 : "\(daysRemaining) days remaining")
+                        Text(hasSubscription
+                             ? "You're a Pro member. Thanks for supporting Departure Board."
+                             : (isExpired
+                                 ? "Your 28-day trial has expired."
+                                 : (daysRemaining == 1
+                                     ? "1 day remaining"
+                                     : "\(daysRemaining) days remaining")))
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -1143,7 +1223,7 @@ private struct TrialBannerSection: View {
                 }
 
                 // Progress bar (only while trial is active)
-                if !isExpired {
+                if !isExpired && !hasSubscription {
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             Capsule()
@@ -1158,31 +1238,35 @@ private struct TrialBannerSection: View {
                 }
 
                 // Body copy
-                Text(isExpired
-                     ? "Subscribe to keep using widgets, themes, travel mode, coach details, and more."
-                     : "Enjoying Departure Board? Subscribe to Departure Board Pro for widgets, themes, travel mode, coach details, and more — and keep everything working after your trial ends.")
+                Text(hasSubscription
+                     ? "All Pro features are active, including widgets, themes, travel mode, and service details."
+                     : (isExpired
+                         ? "Subscribe to keep using widgets, themes, travel mode, coach details, and more."
+                         : "Enjoying Departure Board? Subscribe to Departure Board Pro for widgets, themes, travel mode, coach details, and more — and keep everything working after your trial ends."))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
                 // CTA button
-                Button {
-                    showSubscribe = true
-                } label: {
-                    HStack {
-                        Spacer()
-                        Text(isExpired ? "Subscribe to Continue" : "Get Departure Board Pro")
-                            .font(.subheadline.bold())
-                        Spacer()
+                if !hasSubscription {
+                    Button {
+                        showSubscribe = true
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text(isExpired ? "Subscribe to Continue" : "Get Departure Board Pro")
+                                .font(.subheadline.bold())
+                            Spacer()
+                        }
+                        .padding(.vertical, 10)
+                        .background(isExpired ? Color.red : Theme.brand, in: RoundedRectangle(cornerRadius: 10))
+                        .foregroundStyle(.white)
                     }
-                    .padding(.vertical, 10)
-                    .background(isExpired ? Color.red : Theme.brand, in: RoundedRectangle(cornerRadius: 10))
-                    .foregroundStyle(.white)
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
             .padding(.vertical, 4)
         } header: {
-            Text(isExpired ? "Departure Board Pro Required" : "Your Trial")
+            Text(hasSubscription ? "Unlocked" : (isExpired ? "Departure Board Pro Required" : "Your Trial"))
         }
         .sheet(isPresented: $showSubscribe) {
             SubscribeView()

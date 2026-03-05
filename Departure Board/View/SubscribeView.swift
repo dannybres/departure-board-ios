@@ -44,10 +44,20 @@ private struct PaywallPage: Identifiable {
 // MARK: - Main sheet
 
 struct SubscribeView: View {
+    private enum BillingPeriod: String, CaseIterable, Identifiable {
+        case monthly
+        case yearly
+
+        var id: String { rawValue }
+        var title: String { self == .monthly ? "Monthly" : "Yearly" }
+        var ctaPriceText: String { self == .monthly ? "£2.99 / month" : "£19.99 / year" }
+        var renewalText: String { self == .monthly ? "Cancel anytime. Subscription renews monthly." : "Cancel anytime. Subscription renews yearly." }
+    }
 
     @Environment(\.dismiss) private var dismiss
     private let initialFeature: PaywallFeature
     @State private var currentPage: Int
+    @State private var billingPeriod: BillingPeriod = .monthly
 
     init(initialFeature: PaywallFeature = .all) {
         self.initialFeature = initialFeature
@@ -212,10 +222,19 @@ struct SubscribeView: View {
 
     private var bottomBar: some View {
         VStack(spacing: 8) {
+            Picker("Billing Period", selection: $billingPeriod) {
+                ForEach(BillingPeriod.allCases) { period in
+                    Text(period.title).tag(period)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+
             Button {
                 // TODO: trigger StoreKit purchase
             } label: {
-                Text("Subscribe — £2.99 / month")
+                Text("Subscribe — \(billingPeriod.ctaPriceText)")
                     .font(.headline)
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
@@ -234,7 +253,7 @@ struct SubscribeView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
 
-            Text("Cancel anytime. Subscription renews monthly.")
+            Text(billingPeriod.renewalText)
                 .font(.caption2)
                 .foregroundStyle(Color(.tertiaryLabel))
                 .padding(.bottom, 8)

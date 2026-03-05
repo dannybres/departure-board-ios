@@ -7,6 +7,7 @@
 
 import SwiftUI
 import UIKit
+import CoreSpotlight
 
 // MARK: - Deep Link
 
@@ -70,7 +71,12 @@ struct Departure_BoardApp: App {
 
     init() {
         SharedDefaults.migrateIfNeeded()
-        UserDefaults.standard.register(defaults: ["autoLoadMode": "off"])
+        UserDefaults.standard.register(defaults: [
+            "autoLoadMode": "off",
+            AwarenessSettingsKeys.siriSuggestionsEnabled: true,
+            AwarenessSettingsKeys.spotlightStationsEnabled: true,
+            AwarenessSettingsKeys.spotlightFavouritesEnabled: true
+        ])
         // Explicitly clear any dynamic quick actions so iOS does not show them.
         UIApplication.shared.shortcutItems = []
     }
@@ -82,6 +88,19 @@ struct Departure_BoardApp: App {
                 .environmentObject(entitlement)
                 .onOpenURL { url in
                     pendingDeepLink = DeepLink(url: url)
+                }
+                .onContinueUserActivity(AwarenessActivityType.openBoard) { activity in
+                    if let route = BoardRoute.from(userInfo: activity.userInfo) {
+                        pendingDeepLink = route.deepLink
+                    }
+                }
+                .onContinueUserActivity(AwarenessActivityType.openFavouriteBoard) { activity in
+                    if let route = BoardRoute.from(userInfo: activity.userInfo) {
+                        pendingDeepLink = route.deepLink
+                    }
+                }
+                .onContinueUserActivity(CSSearchableItemActionType) { activity in
+                    pendingDeepLink = SpotlightIndexer.shared.deepLink(from: activity)
                 }
         }
     }

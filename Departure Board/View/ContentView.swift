@@ -764,6 +764,14 @@ struct ContentView: View {
             }
         }
         .environment(\.stationNamesSmallCaps, effectiveStationNamesSmallCaps)
+        .onAppear {
+            consumePendingIntentDeepLinkIfNeeded()
+        }
+        .onChange(of: scenePhase) {
+            if scenePhase == .active {
+                consumePendingIntentDeepLinkIfNeeded()
+            }
+        }
         .sheet(isPresented: $showSubscribe) {
             SubscribeView(initialFeature: subscribeFeature)
         }
@@ -784,8 +792,10 @@ struct ContentView: View {
                             }
                         }
                     }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        TrialToolbarButton(daysRemaining: trial.daysRemaining, isExpired: trial.isExpired, openSettings: { showSettings = true })
+                    if !entitlement.hasSubscription {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            TrialToolbarButton(daysRemaining: trial.daysRemaining, isExpired: trial.isExpired, openSettings: { showSettings = true })
+                        }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button { showSettings = true } label: { Image(systemName: "gearshape") }
@@ -898,8 +908,10 @@ struct ContentView: View {
                 padStationListView
                     .navigationTitle("Departure Board")
                     .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            TrialToolbarButton(daysRemaining: trial.daysRemaining, isExpired: trial.isExpired, openSettings: { showSettings = true })
+                        if !entitlement.hasSubscription {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                TrialToolbarButton(daysRemaining: trial.daysRemaining, isExpired: trial.isExpired, openSettings: { showSettings = true })
+                            }
                         }
                         ToolbarItem(placement: .topBarTrailing) {
                             Button { showSettings = true } label: { Image(systemName: "gearshape") }
@@ -1019,6 +1031,8 @@ struct ContentView: View {
             }
             .task {
                 await fetchNextServices()
+                SpotlightIndexer.shared.indexStations(viewModel.stations)
+                SpotlightIndexer.shared.indexFavouriteBoards(favouriteBoardIDs, stations: viewModel.stations)
                 while !Task.isCancelled {
                     let interval: Double = ProcessInfo.processInfo.isLowPowerModeEnabled ? 120 : 60
                     try? await Task.sleep(for: .seconds(interval))
@@ -1026,10 +1040,17 @@ struct ContentView: View {
                 }
             }
             .onChange(of: locationManager.userLocation) { updateNearbyStations() }
-            .onChange(of: viewModel.stations) { updateNearbyStations() }
+            .onChange(of: viewModel.stations) {
+                updateNearbyStations()
+                SpotlightIndexer.shared.indexStations(viewModel.stations)
+                SpotlightIndexer.shared.indexFavouriteBoards(favouriteBoardIDs, stations: viewModel.stations)
+            }
             .onChange(of: nearbyCount) { updateNearbyStations() }
             .onChange(of: entitlement.hasPremiumAccess) { updateNearbyStations() }
-            .onChange(of: favouriteBoardsData) { Task { await fetchNextServices() } }
+            .onChange(of: favouriteBoardsData) {
+                Task { await fetchNextServices() }
+                SpotlightIndexer.shared.indexFavouriteBoards(favouriteBoardIDs, stations: viewModel.stations)
+            }
             .onChange(of: navigationPath) {
                 guard navigationPath.isEmpty else { return }
                 locationManager.refresh()
@@ -1218,6 +1239,12 @@ struct ContentView: View {
     }
 
     // MARK: - Deep Linking
+
+    private func consumePendingIntentDeepLinkIfNeeded() {
+        guard let url = SharedDefaults.consumePendingIntentDeepLinkURL(),
+              let link = DeepLink(url: url) else { return }
+        handleDeepLink(link)
+    }
 
     private func handleDeepLink(_ link: DeepLink) {
         guard hasPremiumAccess else {

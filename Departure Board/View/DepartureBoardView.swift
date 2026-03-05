@@ -702,6 +702,20 @@ struct DepartureBoardView: View {
             }
             if !silent { UINotificationFeedbackGenerator().notificationOccurred(.success) }
             boardLoad.lastUpdate = Date()
+
+            let route = BoardRoute(
+                crs: station.crsCode,
+                boardType: type,
+                filterCrs: filter.station?.crsCode,
+                filterType: filter.station == nil ? nil : filter.type
+            )
+            RoutineEngine.shared.logBoardOpen(route: route)
+            ActivityDonor.shared.donateBoardOpen(
+                route: route,
+                stationName: station.name,
+                filterName: filter.station?.name,
+                isFavourite: isBoardFavourited
+            )
         } catch {
             if !silent { boardLoad.errorMessage = DepartureBoardView.boardErrorMessages.randomElement()! }
             if !silent { UINotificationFeedbackGenerator().notificationOccurred(.error) }
