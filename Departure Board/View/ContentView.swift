@@ -725,6 +725,15 @@ struct ContentView: View {
         return false
     }
 
+    private func refreshNearbyStations(forceLocationRefresh: Bool = false) {
+        if forceLocationRefresh {
+            locationManager.refresh(force: true)
+        } else {
+            locationManager.refreshIfNeeded(minInterval: 60)
+        }
+        updateNearbyStations()
+    }
+
     private func updateNearbyStations() {
         guard let userLocation = locationManager.userLocation, !viewModel.stations.isEmpty else {
             cachedNearbyStations = []
@@ -873,11 +882,10 @@ struct ContentView: View {
                 .navigationDestination(for: StationDestination.self) { dest in
                     DepartureBoardView(station: dest.station, initialBoardType: dest.boardType, pendingServiceID: dest.pendingServiceID, initialFilterStation: dest.filterStation, initialFilterType: dest.filterType, navigationPath: $navigationPath)
                 }
-                .onAppear { locationManager.refresh(); updateNearbyStations() }
+                .onAppear { refreshNearbyStations(forceLocationRefresh: true) }
                 .onChange(of: scenePhase) {
                     if scenePhase == .active {
-                        locationManager.refresh()
-                        updateNearbyStations()
+                        refreshNearbyStations(forceLocationRefresh: true)
                     }
                 }
                 .onChange(of: locationManager.userLocation) {
@@ -943,11 +951,10 @@ struct ContentView: View {
                         }
                     })
                     }
-                    .onAppear { locationManager.refresh(); updateNearbyStations() }
+                    .onAppear { refreshNearbyStations(forceLocationRefresh: true) }
                     .onChange(of: scenePhase) {
                         if scenePhase == .active {
-                            locationManager.refresh()
-                            updateNearbyStations()
+                            refreshNearbyStations(forceLocationRefresh: true)
                         }
                     }
                     .onChange(of: locationManager.userLocation) {
@@ -1023,11 +1030,13 @@ struct ContentView: View {
             .background(horizontalSizeClass == .regular ? Color(UIColor.systemGroupedBackground) : Color.clear)
             .environment(\.editMode, isEditingFavourites ? .constant(.active) : .constant(.inactive))
             .refreshable {
+                refreshNearbyStations(forceLocationRefresh: true)
                 viewModel.reloadFromCache()
                 await fetchNextServices()
             }
             .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
                 tickDate = Date()
+                refreshNearbyStations()
             }
             .task {
                 await fetchNextServices()
@@ -1053,8 +1062,7 @@ struct ContentView: View {
             }
             .onChange(of: navigationPath) {
                 guard navigationPath.isEmpty else { return }
-                locationManager.refresh()
-                updateNearbyStations()
+                refreshNearbyStations(forceLocationRefresh: true)
             }
             .searchable(text: $searchText, prompt: "Search stations")
     }
