@@ -356,17 +356,7 @@ struct ServiceDetailView: View {
 
         if mapData.pins.count >= 2 {
             Section {
-                Map(selection: $selectedMapPin) {
-                    ForEach(mapData.pins) { pin in
-                        Marker(pin.point.name, systemImage: "tram.fill", coordinate: pin.coordinate)
-                            .tint(markerColor(for: pin.point.state))
-                            .tag(pin.id)
-                    }
-                    ForEach(Array(mapData.polylines.enumerated()), id: \.offset) { _, coords in
-                        MapPolyline(coordinates: coords)
-                            .stroke(Theme.brand, lineWidth: 3)
-                    }
-                }
+                routeMap(mapData)
                 .frame(height: 220)
                 .listRowInsets(EdgeInsets())
 
@@ -376,6 +366,51 @@ struct ServiceDetailView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func routeMap(_ mapData: (pins: [MapPin], polylines: [[CLLocationCoordinate2D]])) -> some View {
+        if #available(iOS 17.0, *) {
+            Map(selection: $selectedMapPin) {
+                ForEach(mapData.pins) { pin in
+                    Marker(pin.point.name, systemImage: "tram.fill", coordinate: pin.coordinate)
+                        .tint(markerColor(for: pin.point.state))
+                        .tag(pin.id)
+                }
+                ForEach(Array(mapData.polylines.enumerated()), id: \.offset) { _, coords in
+                    MapPolyline(coordinates: coords)
+                        .stroke(Theme.brand, lineWidth: 3)
+                }
+            }
+        } else {
+            let region = mapRegion(for: mapData.pins)
+            Map(coordinateRegion: .constant(region), annotationItems: mapData.pins) { pin in
+                MapMarker(coordinate: pin.coordinate, tint: markerColor(for: pin.point.state))
+            }
+        }
+    }
+
+    private func mapRegion(for pins: [MapPin]) -> MKCoordinateRegion {
+        let latitudes = pins.map { $0.coordinate.latitude }
+        let longitudes = pins.map { $0.coordinate.longitude }
+
+        guard let minLat = latitudes.min(),
+              let maxLat = latitudes.max(),
+              let minLon = longitudes.min(),
+              let maxLon = longitudes.max() else {
+            return MKCoordinateRegion(
+                center: CLLocationCoordinate2D(latitude: 54.5, longitude: -2.5),
+                span: MKCoordinateSpan(latitudeDelta: 1.0, longitudeDelta: 1.0)
+            )
+        }
+
+        let latitudeDelta = max((maxLat - minLat) * 1.5, 0.05)
+        let longitudeDelta = max((maxLon - minLon) * 1.5, 0.05)
+
+        return MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2, longitude: (minLon + maxLon) / 2),
+            span: MKCoordinateSpan(latitudeDelta: latitudeDelta, longitudeDelta: longitudeDelta)
+        )
     }
 
     private func pinDetailRow(_ point: RoutePoint) -> some View {
