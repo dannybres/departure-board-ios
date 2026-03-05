@@ -9,6 +9,7 @@ import SwiftUI
 
 enum PaywallFeature {
     case widgets
+    case lockScreen
     case themes
     case favourites
     case travelMode
@@ -20,13 +21,14 @@ enum PaywallFeature {
     var page: Int {
         switch self {
         case .widgets: 0
-        case .themes: 1
-        case .favourites: 2
-        case .travelMode: 3
-        case .serviceDetail: 4
-        case .stationInfo: 5
-        case .autoLoad: 6
-        case .all: 7
+        case .lockScreen: 1
+        case .themes: 2
+        case .favourites: 3
+        case .travelMode: 4
+        case .serviceDetail: 5
+        case .stationInfo: 6
+        case .autoLoad: 7
+        case .all: 8
         }
     }
 }
@@ -62,48 +64,55 @@ struct SubscribeView: View {
         ),
         PaywallPage(
             id: 1,
+            icon: "lock.iphone",
+            title: "Lock Screen Widgets",
+            subtitle: "See your next train directly on your Lock Screen with glanceable inline, circular, and rectangular layouts.",
+            preview: AnyView(WidgetPreview())
+        ),
+        PaywallPage(
+            id: 2,
             icon: "paintpalette.fill",
             title: "Boards That Turn Heads",
             subtitle: "Choose from seven row styles and full operator livery colours. Your board, your look — from subtle to striking.",
             preview: AnyView(ThemePreview())
         ),
         PaywallPage(
-            id: 2,
+            id: 3,
             icon: "star.leadinghalf.filled",
             title: "Your Stations, Unlimited",
             subtitle: "Star as many stations as you like and see your next departure right on the card — tap to jump straight to the service.",
             preview: AnyView(FavouritesPreview())
         ),
         PaywallPage(
-            id: 3,
+            id: 4,
             icon: "clock.arrow.circlepath",
             title: "See Earlier & Later Trains",
             subtitle: "Jump forward or back in time on any board. Perfect for planning connections or checking if you've already missed the last train.",
             preview: AnyView(TravelModePreview())
         ),
         PaywallPage(
-            id: 4,
+            id: 5,
             icon: "list.bullet.rectangle.fill",
             title: "Every Stop, Every Detail",
             subtitle: "The full calling-point timeline with live delays at each stop, plus carriage formation and live loading percentages where available.",
             preview: AnyView(ServiceDetailPreview())
         ),
         PaywallPage(
-            id: 5,
+            id: 6,
             icon: "building.2.fill",
             title: "Know Your Station",
             subtitle: "Ticket office hours, accessibility facilities, car parking, toilets, left luggage, and more — all in one place.",
             preview: AnyView(StationInfoPreview())
         ),
         PaywallPage(
-            id: 6,
+            id: 7,
             icon: "bolt.fill",
             title: "Opens the Right Board, Automatically",
             subtitle: "The app opens your nearest favourite board the moment you arrive at a station. Hook it into Shortcuts for full automation.",
             preview: AnyView(AutoloadPreview())
         ),
         PaywallPage(
-            id: 7,
+            id: 8,
             icon: "checkmark.seal.fill",
             title: "Everything in One Subscription",
             subtitle: "One price unlocks it all — and everything that comes next.",

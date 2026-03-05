@@ -1221,7 +1221,11 @@ struct ContentView: View {
 
     private func handleDeepLink(_ link: DeepLink) {
         guard hasPremiumAccess else {
-            presentSubscribe(.widgets)
+            if case .unlock(let feature) = link, feature == "lockscreen" {
+                presentSubscribe(.lockScreen)
+            } else {
+                presentSubscribe(.widgets)
+            }
             return
         }
         // Claim the auto-load slot immediately so the location onChange can't
@@ -1235,6 +1239,8 @@ struct ContentView: View {
         case .arrivals(let c): crs = c
         case .station(let c): crs = c
         case .service(let c, _): crs = c
+        case .unlock:
+            return
         case .filteredDepartures(let c, _, _): crs = c
         case .filteredArrivals(let c, _, _): crs = c
         }
@@ -1268,6 +1274,8 @@ struct ContentView: View {
                 stationInfoCrs = station.crsCode
             case .service(_, let serviceId):
                 navigate(to: StationDestination(station: station, boardType: .departures, pendingServiceID: serviceId))
+            case .unlock:
+                break
             case .filteredDepartures(_, let filterCrs, let filterType):
                 let filterStation = stations.first(where: { $0.crsCode == filterCrs })
                 navigate(to: StationDestination(station: station, boardType: .departures, filterStation: filterStation, filterType: filterType))

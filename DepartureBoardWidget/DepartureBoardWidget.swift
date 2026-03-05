@@ -192,6 +192,25 @@ struct DepartureEntry: TimelineEntry {
     }
 }
 
+struct LockScreenEntry: TimelineEntry {
+    let date: Date
+    let stationName: String
+    let crs: String
+    let boardType: BoardType
+    let filterCrs: String?
+    let filterType: String?
+    let upcomingServices: [LockService]
+    let hasPremiumAccess: Bool
+
+    struct LockService: Identifiable, Equatable {
+        let id: String
+        let scheduled: String
+        let destination: String
+        let platform: String?
+        let isCancelled: Bool
+    }
+}
+
 // MARK: - Single Station Provider
 
 struct SingleStationProvider: AppIntentTimelineProvider {
@@ -260,6 +279,100 @@ struct DualStationProvider: AppIntentTimelineProvider {
             boards = defaultBoards(count: 2)
         }
         return boards
+    }
+}
+
+// MARK: - Lock Screen Provider
+
+struct LockScreenProvider: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> LockScreenEntry {
+        .init(
+            date: Date(),
+            stationName: "London Waterloo",
+            crs: "WAT",
+            boardType: .departures,
+            filterCrs: nil,
+            filterType: nil,
+            upcomingServices: [
+                .init(id: "mock-1", scheduled: "12:01", destination: "Woking", platform: "5", isCancelled: false),
+                .init(id: "mock-2", scheduled: "12:07", destination: "Basingstoke", platform: "8", isCancelled: false),
+            ],
+            hasPremiumAccess: true
+        )
+    }
+
+    func snapshot(for configuration: SingleStationIntent, in context: Context) async -> LockScreenEntry {
+        if context.isPreview {
+            return placeholder(in: context)
+        }
+        return await fetchLockScreenTimeline(for: configuration).entries.first ?? placeholder(in: context)
+    }
+
+    func timeline(for configuration: SingleStationIntent, in context: Context) async -> Timeline<LockScreenEntry> {
+        await fetchLockScreenTimeline(for: configuration)
+    }
+
+    private func selectedBoard(for config: SingleStationIntent) -> BoardConfig {
+        if let board = config.board {
+            let raw = BoardConfig(crs: board.crs, boardType: .departures, filterCrs: board.filterCrs, filterType: board.filterType)
+            return resolveBoard(raw)
+        }
+        if let first = defaultBoards(count: 1).first {
+            return BoardConfig(crs: first.crs, boardType: .departures, filterCrs: first.filterCrs, filterType: first.filterType)
+        }
+        return BoardConfig(crs: "WAT", boardType: .departures, filterCrs: nil, filterType: nil)
+    }
+
+    private func fetchLockScreenTimeline(for config: SingleStationIntent) async -> Timeline<LockScreenEntry> {
+        let board = selectedBoard(for: config)
+        let stations = loadStationCache()
+        let name = stations.first(where: { $0.crsCode == board.crs })?.name ?? board.crs
+        let premium = hasWidgetPremiumAccess()
+        let now = Date()
+
+        if !premium {
+            let entry = LockScreenEntry(
+                date: now,
+                stationName: name,
+                crs: board.crs,
+                boardType: board.boardType,
+                filterCrs: board.filterCrs,
+                filterType: board.filterType,
+                upcomingServices: [],
+                hasPremiumAccess: false
+            )
+            return Timeline(entries: [entry], policy: .after(now.addingTimeInterval(300)))
+        }
+
+        do {
+            let result = try await fetchBoard(
+                crs: board.crs,
+                boardType: board.boardType,
+                numRows: 24,
+                filterCrs: board.filterCrs,
+                filterType: board.filterType
+            )
+            let services = lockScreenServices(from: result, boardType: board.boardType)
+            let entries = buildLockScreenEntries(
+                board: board,
+                stationName: name,
+                services: services,
+                start: now
+            )
+            return Timeline(entries: entries, policy: .atEnd)
+        } catch {
+            let entry = LockScreenEntry(
+                date: now,
+                stationName: name,
+                crs: board.crs,
+                boardType: board.boardType,
+                filterCrs: board.filterCrs,
+                filterType: board.filterType,
+                upcomingServices: [],
+                hasPremiumAccess: true
+            )
+            return Timeline(entries: [entry], policy: .after(now.addingTimeInterval(180)))
+        }
     }
 }
 
@@ -369,6 +482,129 @@ private func fetchEntry(boards: [BoardConfig], servicesPerStation: Int) async ->
     }
 
     return DepartureEntry(date: Date(), stations: stationDepartures)
+}
+
+private func lockScreenServices(from board: DepartureBoard, boardType: BoardType) -> [LockScreenEntry.LockService] {
+    let combined = (board.trainServices ?? []) + (board.busServices ?? [])
+    let sorted = combined.enumerated().sorted { lhs, rhs in
+        func sortKey(_ t: String) -> Int? {
+            let parts = t.split(separator: ":").compactMap { Int($0) }
+            guard parts.count == 2 else { return nil }
+            let mins = parts[0] * 60 + parts[1]
+            return mins < 360 ? mins + 1440 : mins
+        }
+        let isDep = boardType != .arrivals
+        let aTime = isDep ? (lhs.element.std ?? lhs.element.sta) : (lhs.element.sta ?? lhs.element.std)
+        let bTime = isDep ? (rhs.element.std ?? rhs.element.sta) : (rhs.element.sta ?? rhs.element.std)
+        let ak = sortKey(aTime ?? "")
+        let bk = sortKey(bTime ?? "")
+        switch (ak, bk) {
+        case let (a?, b?): return a < b
+        default: return lhs.offset < rhs.offset
+        }
+    }.map(\.element)
+
+    return sorted.compactMap { service in
+        let destination = boardType == .arrivals
+            ? service.origin.map(\.locationName).joined(separator: " & ")
+            : service.destination.map(\.locationName).joined(separator: " & ")
+        let scheduled = boardType == .arrivals
+            ? (service.sta ?? service.std)
+            : (service.std ?? service.sta)
+        guard let scheduled else { return nil }
+        return LockScreenEntry.LockService(
+            id: service.serviceId,
+            scheduled: scheduled,
+            destination: destination,
+            platform: service.platform,
+            isCancelled: service.isCancelled
+        )
+    }
+}
+
+private func buildLockScreenEntries(
+    board: BoardConfig,
+    stationName: String,
+    services: [LockScreenEntry.LockService],
+    start: Date
+) -> [LockScreenEntry] {
+    guard !services.isEmpty else {
+        return [
+            LockScreenEntry(
+                date: start,
+                stationName: stationName,
+                crs: board.crs,
+                boardType: board.boardType,
+                filterCrs: board.filterCrs,
+                filterType: board.filterType,
+                upcomingServices: [],
+                hasPremiumAccess: true
+            )
+        ]
+    }
+
+    let datedServices: [(service: LockScreenEntry.LockService, date: Date)] = services.compactMap { service in
+        guard let absolute = absoluteServiceDate(hhmm: service.scheduled, reference: start) else { return nil }
+        return (service, absolute)
+    }
+
+    guard !datedServices.isEmpty else {
+        return [
+            LockScreenEntry(
+                date: start,
+                stationName: stationName,
+                crs: board.crs,
+                boardType: board.boardType,
+                filterCrs: board.filterCrs,
+                filterType: board.filterType,
+                upcomingServices: [],
+                hasPremiumAccess: true
+            )
+        ]
+    }
+
+    var entries: [LockScreenEntry] = []
+    for minute in 0..<180 {
+        guard let at = Calendar.current.date(byAdding: .minute, value: minute, to: start) else { continue }
+        let cutoff = at.addingTimeInterval(-60) // drop a train 1 minute after its scheduled time
+        let next = datedServices
+            .filter { $0.date > cutoff }
+            .prefix(2)
+            .map(\.service)
+        entries.append(
+            LockScreenEntry(
+                date: at,
+                stationName: stationName,
+                crs: board.crs,
+                boardType: board.boardType,
+                filterCrs: board.filterCrs,
+                filterType: board.filterType,
+                upcomingServices: next,
+                hasPremiumAccess: true
+            )
+        )
+    }
+
+    return entries.isEmpty
+        ? [LockScreenEntry(date: start, stationName: stationName, crs: board.crs, boardType: board.boardType, filterCrs: board.filterCrs, filterType: board.filterType, upcomingServices: [], hasPremiumAccess: true)]
+        : entries
+}
+
+private func absoluteServiceDate(hhmm: String, reference: Date) -> Date? {
+    let parts = hhmm.split(separator: ":").compactMap { Int($0) }
+    guard parts.count == 2 else { return nil }
+    var comps = Calendar.current.dateComponents([.year, .month, .day], from: reference)
+    comps.hour = parts[0]
+    comps.minute = parts[1]
+    comps.second = 0
+    guard var date = Calendar.current.date(from: comps) else { return nil }
+
+    if date < reference.addingTimeInterval(-6 * 3600) {
+        date = Calendar.current.date(byAdding: .day, value: 1, to: date) ?? date
+    } else if date > reference.addingTimeInterval(18 * 3600) {
+        date = Calendar.current.date(byAdding: .day, value: -1, to: date) ?? date
+    }
+    return date
 }
 
 private func loadFavouriteBoards() -> [String] {
@@ -563,6 +799,127 @@ struct LockedWidgetView: View {
     }
 }
 
+private func boardDeepLinkURL(crs: String, boardType: BoardType, filterCrs: String?, filterType: String?) -> URL {
+    let host = boardType == .arrivals ? "arrivals" : "departures"
+    var components = URLComponents()
+    components.scheme = "departure"
+    components.host = host
+    components.path = "/\(crs)"
+    if let filterCrs {
+        let ft = filterType == "to" ? "to" : "from"
+        components.queryItems = [
+            URLQueryItem(name: "filter", value: filterCrs),
+            URLQueryItem(name: "filterType", value: ft)
+        ]
+    }
+    return components.url ?? URL(string: "departure://departures/\(crs)")!
+}
+
+struct LockScreenWidgetView: View {
+    let entry: LockScreenEntry
+    @Environment(\.widgetFamily) private var family
+
+    private var destination: URL {
+        if !entry.hasPremiumAccess {
+            return URL(string: "departure://unlock/lockscreen")!
+        }
+        return boardDeepLinkURL(
+            crs: entry.crs,
+            boardType: entry.boardType,
+            filterCrs: entry.filterCrs,
+            filterType: entry.filterType
+        )
+    }
+
+    private var rectangularHeader: String? {
+        guard let filterCrs = entry.filterCrs else { return nil }
+        return "\(entry.crs.uppercased()) > \(filterCrs.uppercased())"
+    }
+
+    var body: some View {
+        Group {
+            if !entry.hasPremiumAccess {
+                lockedBody
+            } else {
+                liveBody
+            }
+        }
+        .widgetURL(destination)
+    }
+
+    @ViewBuilder
+    private var lockedBody: some View {
+        switch family {
+        case .accessoryInline:
+            Text("Unlock Departure Board")
+        case .accessoryCircular:
+            ZStack {
+                Circle().strokeBorder(.secondary.opacity(0.4), lineWidth: 2)
+                Image(systemName: "lock.fill")
+                    .font(.caption.bold())
+            }
+        default:
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Departure Board")
+                    .font(.caption2.weight(.semibold))
+                Text("Unlock to use Lock Screen widgets")
+                    .font(.caption2)
+                    .lineLimit(2)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var liveBody: some View {
+        switch family {
+        case .accessoryInline:
+            if let next = entry.upcomingServices.first {
+                if next.isCancelled {
+                    Text("\(next.scheduled) \(next.destination) • Cancelled")
+                } else {
+                    Text("\(next.scheduled) \(next.destination)")
+                }
+            } else {
+                Text("No services")
+            }
+        case .accessoryCircular:
+            ZStack {
+                Circle().strokeBorder(.secondary.opacity(0.35), lineWidth: 2)
+                Image(systemName: "train.side.front.car")
+                    .font(.caption.bold())
+            }
+        default:
+            VStack(alignment: .leading, spacing: 2) {
+                Text(rectangularHeader ?? entry.stationName)
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+                if entry.upcomingServices.isEmpty {
+                    Text("No services")
+                        .font(.caption2)
+                } else {
+                    ForEach(Array(entry.upcomingServices.prefix(2))) { service in
+                        HStack(spacing: 4) {
+                            Text(service.scheduled)
+                                .font(.system(.caption, design: .monospaced).bold())
+                            Text(service.destination)
+                                .font(.caption2)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                            if service.isCancelled {
+                                Text("Cancelled")
+                                    .font(.caption2.weight(.semibold))
+                            } else if let platform = service.platform {
+                                Text("P\(platform)")
+                                    .font(.caption2.weight(.semibold))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 enum WidgetRowStyle {
     case minimal  // small widget: no status text, colour the time instead
     case compact  // medium / dual: compact with status
@@ -647,7 +1004,7 @@ struct StationBlock: View {
                 return "\(arrow) \(crs)"
             }()
             HStack(alignment: .center, spacing: 4) {
-                Link(destination: URL(string: "departure://departures/\(station.crs)")!) {
+                Link(destination: boardDeepLinkURL(crs: station.crs, boardType: .departures, filterCrs: station.filterCrs, filterType: station.filterType)) {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                         let sc = hasWidgetPremiumAccess() && UserDefaults.standard.bool(forKey: "stationNamesSmallCaps")
                         Text(station.name)
@@ -661,15 +1018,15 @@ struct StationBlock: View {
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
+                        Spacer(minLength: 0)
+                        if style != .minimal {
+                            Text(entryDate, style: .relative)
+                                .font(.system(size: 9))
+                                .foregroundStyle(.tertiary)
+                                .monospacedDigit()
+                                .lineLimit(1)
+                        }
                     }
-                }
-                Spacer(minLength: 0)
-                if style != .minimal {
-                    Text(entryDate, style: .relative)
-                        .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
-                        .monospacedDigit()
-                        .lineLimit(1)
                 }
                 Button(intent: RefreshWidgetIntent()) {
                     Image(systemName: "arrow.clockwise")
@@ -912,6 +1269,21 @@ struct DualStationWidget: Widget {
         .configurationDisplayName("Two Boards")
         .description("Boards from two chosen stations.")
         .supportedFamilies([.systemMedium, .systemLarge])
+        .promptsForUserConfiguration()
+    }
+}
+
+struct LockScreenWidget: Widget {
+    let kind = "LockScreenWidget"
+
+    var body: some WidgetConfiguration {
+        AppIntentConfiguration(kind: kind, intent: SingleStationIntent.self, provider: LockScreenProvider()) { entry in
+            LockScreenWidgetView(entry: entry)
+                .containerBackground(.fill.tertiary, for: .widget)
+        }
+        .configurationDisplayName("Lock Screen Train")
+        .description("Next scheduled train for one station on your Lock Screen.")
+        .supportedFamilies([.accessoryInline, .accessoryCircular, .accessoryRectangular])
         .promptsForUserConfiguration()
     }
 }
