@@ -192,7 +192,14 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            TrialBannerSection(daysRemaining: trial.daysRemaining, isExpired: trial.isExpired, hasSubscription: entitlement.hasSubscription)
+            TrialBannerSection(
+                daysRemaining: trial.daysRemaining,
+                isExpired: trial.isExpired,
+                hasSubscription: entitlement.hasSubscription
+            ) {
+                subscribeFeature = .all
+                showSubscribe = true
+            }
 
             Section {
                 VStack(alignment: .leading, spacing: 4) {
@@ -1349,8 +1356,8 @@ private struct TrialBannerSection: View {
     let daysRemaining: Int
     let isExpired: Bool
     let hasSubscription: Bool
+    let onSubscribeTap: () -> Void
 
-    @State private var showSubscribe = false
     private var isUrgent: Bool { daysRemaining <= 7 }
 
     var body: some View {
@@ -1406,7 +1413,7 @@ private struct TrialBannerSection: View {
                 // CTA button
                 if !hasSubscription {
                     Button {
-                        showSubscribe = true
+                        onSubscribeTap()
                     } label: {
                         HStack {
                             Spacer()
@@ -1424,9 +1431,6 @@ private struct TrialBannerSection: View {
             .padding(.vertical, 4)
         } header: {
             Text(hasSubscription ? "Unlocked" : (isExpired ? "Departure Board Pro Required" : "Your Trial"))
-        }
-        .sheet(isPresented: $showSubscribe) {
-            SubscribeView()
         }
     }
 }
