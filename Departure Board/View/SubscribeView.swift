@@ -72,6 +72,13 @@ struct SubscribeView: View {
             subtitle: "The app opens your nearest favourite board the moment you arrive at a station. Hook it into Shortcuts for full automation.",
             preview: AnyView(AutoloadPreview())
         ),
+        PaywallPage(
+            id: 7,
+            icon: "checkmark.seal.fill",
+            title: "Everything in One Subscription",
+            subtitle: "One price unlocks it all — and everything that comes next.",
+            preview: AnyView(AllFeaturesPreview())
+        ),
     ]
 
     var body: some View {
@@ -80,8 +87,8 @@ struct SubscribeView: View {
             carousel
             bottomBar
         }
-        .background(Color(.systemGroupedBackground))
         .ignoresSafeArea(edges: .bottom)
+        .presentationBackground(.regularMaterial)
     }
 
     // MARK: - Header
@@ -118,6 +125,7 @@ struct SubscribeView: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .frame(height: 420)
+            .background(Color.clear)
 
             // Page dots
             HStack(spacing: 6) {
@@ -190,7 +198,6 @@ struct SubscribeView: View {
                 .padding(.bottom, 8)
         }
         .padding(.bottom, 24)
-        .background(Color(.systemGroupedBackground))
     }
 }
 
@@ -201,14 +208,14 @@ struct SubscribeView: View {
 private struct WidgetPreview: View {
     var body: some View {
         ZStack {
-            Color(.secondarySystemGroupedBackground)
+            Color.clear
             VStack(spacing: 10) {
                 // Medium widget mock
-                MockWidget(station: "London Waterloo", rows: [
-                    ("07:42", "Reading", "On time", "4"),
-                    ("07:55", "Southampton C", "On time", "6"),
-                    ("08:03", "Basingstoke", "Delayed", "3"),
-                    ("08:17", "Windsor", "On time", "1"),
+                MockWidget(station: "Arendelle Central", rows: [
+                    ("07:42", "North Mountain", "On time", "1"),
+                    ("07:55", "Enchanted Forest", "On time", "3"),
+                    ("08:03", "Weselton Intl", "Delayed", "2"),
+                    ("08:17", "Ahtohallan",     "On time", "5"),
                 ])
                 .frame(height: 140)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
@@ -225,7 +232,7 @@ private struct MockWidget: View {
 
     var body: some View {
         ZStack {
-            Color.black
+            Color.black.opacity(0.6)
             VStack(alignment: .leading, spacing: 0) {
                 Text(station.uppercased())
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
@@ -269,32 +276,34 @@ private struct MockWidget: View {
 // MARK: Themes
 
 private struct ThemePreview: View {
-    private let rows: [(String, String, String, Color)] = [
-        ("08:14", "Edinburgh", "GR"),
-        ("08:22", "Manchester", "TP"),
-        ("08:31", "Bristol", "GW"),
-        ("08:45", "Birmingham", "VT"),
-    ].map { time, dest, toc in
-        (time, dest, toc, OperatorColours.entry(for: toc).primary)
+    // (time, destination, toc, platform, isDelayed, delayText)
+    private let rows: [(String, String, String, Color, String, Bool, String?)] = [
+        ("08:14", "North Mountain",    "GR", "1", false, nil),
+        ("08:22", "Weselton Intl",     "TP", "3", true,  "Exp 08:31"),
+        ("08:31", "Enchanted Forest",  "GW", "2", false, nil),
+    ].map { time, dest, toc, plat, delayed, delay in
+        (time, dest, toc, OperatorColours.entry(for: toc).primary, plat, delayed, delay)
     }
 
-    @State private var phase = 0
-    private let themes: [RowTheme] = [.trackline, .timeTile, .timePanel, .boardWash, .platformPulse]
+    private let themes: [RowTheme] = [.trackline, .timeTile, .timePanel]
 
     var body: some View {
         ZStack {
-            Color(.secondarySystemGroupedBackground)
+            Color.clear
             VStack(spacing: 0) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
                     let theme = themes[i % themes.count]
-                    ThemedRow(time: row.0, destination: row.1, colour: row.3, theme: theme)
-                        .frame(height: 48)
+                    ThemedRow(
+                        time: row.0, destination: row.1, colour: row.3,
+                        theme: theme, platform: row.4, isDelayed: row.5, delayText: row.6
+                    )
+                    .frame(height: 52)
                     if i < rows.count - 1 {
                         Divider().padding(.leading, 12)
                     }
                 }
             }
-            .background(Color(.systemBackground))
+            .background(Material.ultraThin)
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .padding(16)
         }
@@ -306,10 +315,13 @@ private struct ThemedRow: View {
     let destination: String
     let colour: Color
     let theme: RowTheme
+    let platform: String
+    let isDelayed: Bool
+    let delayText: String?
 
     var body: some View {
         HStack(spacing: 0) {
-            // Left accent
+            // Left accent / time panel
             if theme == .trackline {
                 colour.frame(width: 3)
             } else if theme == .timePanel {
@@ -320,7 +332,6 @@ private struct ThemedRow: View {
             if theme == .timePanel {
                 Spacer().frame(width: 8)
             } else {
-                // Time tile or plain
                 Group {
                     if theme == .timeTile {
                         Text(time)
@@ -337,16 +348,36 @@ private struct ThemedRow: View {
                 .padding(.leading, theme == .trackline ? 10 : 12)
             }
 
-            if theme != .timePanel {
-                Spacer().frame(width: 10)
+            if theme != .timePanel { Spacer().frame(width: 10) }
+
+            // Destination + optional delay
+            VStack(alignment: .leading, spacing: 1) {
+                Text(destination)
+                    .font(.system(size: 14))
+                    .lineLimit(1)
+                if let delay = delayText {
+                    Text(delay)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(destination)
-                .font(.system(size: 14))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Spacer()
+            // Status + platform
+            HStack(spacing: 6) {
+                if !isDelayed {
+                    Text("On time")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.green)
+                }
+                Text(platform)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Color(.darkGray), in: RoundedRectangle(cornerRadius: 4))
+            }
+            .padding(.trailing, 10)
         }
         .frame(maxWidth: .infinity)
         .background(theme == .boardWash ? colour.opacity(0.18) : Color.clear)
@@ -356,134 +387,216 @@ private struct ThemedRow: View {
 
 // MARK: Favourites
 
+private struct MockFavouriteItem {
+    let crs: String
+    let name: String
+    let boardType: String   // "dep" | "arr" | "filter"
+    let filterLabel: String?
+    let trailingIcon: String
+    // next service pill data
+    let pillTime: String
+    let pillDest: String
+    let pillPlatform: String?
+    let pillDelayed: Bool
+    let pillExpected: String?
+}
+
 private struct FavouritesPreview: View {
-    private let items: [(String, String, String, Bool)] = [
-        ("London Waterloo", "DEP", "08:22", false),
-        ("Clapham Junction", "DEP", "08:07", true),
-        ("Vauxhall", "ARR", "08:15", false),
+    private let items: [MockFavouriteItem] = [
+        MockFavouriteItem(
+            crs: "ARE", name: "Arendelle", boardType: "dep",
+            filterLabel: nil, trailingIcon: "arrow.up.right",
+            pillTime: "08:22", pillDest: "North Mountain",
+            pillPlatform: nil, pillDelayed: false, pillExpected: nil
+        ),
+        MockFavouriteItem(
+            crs: "ICP", name: "Ice Palace", boardType: "dep",
+            filterLabel: nil, trailingIcon: "arrow.up.right",
+            pillTime: "08:07", pillDest: "Arendelle",
+            pillPlatform: nil, pillDelayed: true, pillExpected: "08:14"
+        ),
+        MockFavouriteItem(
+            crs: "ARE", name: "Arendelle", boardType: "filter",
+            filterLabel: "From Weselton", trailingIcon: "arrow.right.arrow.left",
+            pillTime: "08:31", pillDest: "Weselton Intl",
+            pillPlatform: nil, pillDelayed: false, pillExpected: nil
+        ),
     ]
 
     var body: some View {
         ZStack {
-            Color(.secondarySystemGroupedBackground)
-            VStack(spacing: 8) {
-                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.0)
-                                .font(.subheadline.bold())
-                            Text(item.1 == "DEP" ? "Departures" : "Arrivals")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if item.2 != "" {
-                            HStack(spacing: 4) {
-                                Image(systemName: "clock")
-                                    .font(.caption2)
-                                Text(item.2)
-                                    .font(.caption.bold())
-                            }
-                            .foregroundStyle(item.3 ? .orange : Theme.brand)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background((item.3 ? Color.orange : Theme.brand).opacity(0.12), in: Capsule())
-                        }
-                        Image(systemName: "star.fill")
-                            .foregroundStyle(.yellow)
-                            .font(.caption)
-                            .padding(.leading, 6)
+            Color.clear
+            VStack(spacing: 0) {
+                ForEach(Array(items.enumerated()), id: \.offset) { i, item in
+                    MockFavouriteRow(item: item)
+                    if i < items.count - 1 {
+                        Divider().padding(.leading, 16)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 10))
                 }
             }
+            .background(Material.ultraThin, in: RoundedRectangle(cornerRadius: 12))
             .padding(16)
         }
+    }
+}
+
+private struct MockFavouriteRow: View {
+    let item: MockFavouriteItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Top row: CRS pill · name + type · trailing icon
+            HStack(spacing: 8) {
+                // CRS pill (or stacked filter pill)
+                if item.boardType == "filter" {
+                    VStack(spacing: 1) {
+                        Text("WES")
+                            .font(Theme.crsFont)
+                            .foregroundStyle(Theme.brand)
+                        Image(systemName: "arrow.down")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundStyle(.secondary)
+                        Text(item.crs)
+                            .font(Theme.crsFont)
+                            .foregroundStyle(Theme.brand)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(Theme.brandSubtle, in: RoundedRectangle(cornerRadius: 4))
+                } else {
+                    Text(item.crs)
+                        .font(Theme.crsFont)
+                        .foregroundStyle(Theme.brand)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Theme.brandSubtle, in: RoundedRectangle(cornerRadius: 4))
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.name)
+                        .font(.headline)
+                    if let filter = item.filterLabel {
+                        Text(filter)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(item.boardType == "dep" ? "Departures" : item.boardType == "arr" ? "Arrivals" : "Departures")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: item.trailingIcon)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            // Next service pill — matches NextServicePillView exactly
+            HStack(spacing: 5) {
+                Text(item.pillTime)
+                    .font(.system(.caption2, design: .monospaced).bold())
+                Text(item.pillDest)
+                    .font(.caption2)
+                    .lineLimit(1)
+                if item.pillDelayed {
+                    Image(systemName: "clock.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+                Spacer(minLength: 0)
+                if item.pillDelayed, let exp = item.pillExpected {
+                    Text(exp)
+                        .font(.system(.caption2, design: .monospaced).bold())
+                        .foregroundStyle(.orange)
+                }
+                if let plat = item.pillPlatform {
+                    Text("Plat \(plat)")
+                        .font(.system(.caption2, design: .monospaced).weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color(white: 0.2), in: RoundedRectangle(cornerRadius: 3))
+                        .environment(\.colorScheme, .dark)
+                }
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Theme.brandSubtle, in: RoundedRectangle(cornerRadius: 6))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
 
 // MARK: Travel mode
 
 private struct TravelModePreview: View {
-    @State private var selected = 1
 
-    private let offsets = [
-        (0, "Now"),
-        (1, "+30 min"),
-        (2, "+1 hour"),
-        (3, "+2 hours"),
+    private let nowRows: [(String, String)] = [
+        ("08:14", "North Mountain"),
+        ("08:22", "Weselton Intl"),
+        ("08:31", "Enchanted Forest"),
+        ("08:45", "Ahtohallan"),
+    ]
+    private let laterRows: [(String, String)] = [
+        ("09:18", "Ice Palace"),
+        ("09:27", "Troll Valley"),
+        ("09:34", "Oaken's Halt"),
+        ("09:52", "Southern Isles"),
     ]
 
     var body: some View {
         ZStack {
-            Color(.secondarySystemGroupedBackground)
-            VStack(spacing: 20) {
-                VStack(spacing: 4) {
-                    Text("LONDON PADDINGTON")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+            Color.clear
+            HStack(alignment: .top, spacing: 10) {
+                boardColumn(label: "Now", rows: nowRows)
+                    .frame(maxWidth: .infinity)
+
+                VStack {
+                    Spacer()
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(Theme.brand)
-                    Text("Departures from \(offsets[selected].1)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .animation(.default, value: selected)
+                    Spacer()
                 }
+                .frame(width: 28)
 
-                // Offset selector
-                HStack(spacing: 0) {
-                    ForEach(offsets, id: \.0) { offset in
-                        Button {
-                            withAnimation(.spring(duration: 0.3)) { selected = offset.0 }
-                        } label: {
-                            Text(offset.1)
-                                .font(.caption.bold())
-                                .foregroundStyle(selected == offset.0 ? .white : .primary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
-                                .background(selected == offset.0 ? Theme.brand : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(4)
-                .background(Color(.systemFill), in: RoundedRectangle(cornerRadius: 10))
-                .padding(.horizontal, 20)
-
-                // Mock services at selected offset
-                VStack(spacing: 0) {
-                    ForEach(mockRows(for: selected), id: \.0) { row in
-                        HStack {
-                            Text(row.0)
-                                .font(.system(size: 13, weight: .bold, design: .monospaced))
-                                .frame(width: 44, alignment: .leading)
-                            Text(row.1)
-                                .font(.system(size: 13))
-                                .lineLimit(1)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Text("Plat \(row.2)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        Divider().padding(.leading, 14)
-                    }
-                }
-                .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 10))
-                .padding(.horizontal, 16)
+                boardColumn(label: "+ 1 hour", rows: laterRows)
+                    .frame(maxWidth: .infinity)
             }
+            .padding(16)
         }
     }
 
-    private func mockRows(for offset: Int) -> [(String, String, String)] {
-        let bases: [[(String, String, String)]] = [
-            [("07:58","Reading","4"), ("08:12","Bristol Pkwy","1"), ("08:19","Oxford","3")],
-            [("08:32","Swindon","2"), ("08:41","Cardiff C","5"), ("08:55","Bath Spa","1")],
-            [("09:05","Exeter","3"), ("09:18","Didcot","4"), ("09:30","Bristol","2")],
-            [("10:02","Plymouth","1"), ("10:15","Taunton","3"), ("10:28","Penzance","6")],
-        ]
-        return bases[min(offset, bases.count - 1)]
+    private func boardColumn(label: String, rows: [(String, String)]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(label)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Theme.brand, in: RoundedRectangle(cornerRadius: 6))
+                .padding(.bottom, 8)
+
+            ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
+                HStack(spacing: 6) {
+                    Text(row.0)
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    Text(row.1)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .padding(.vertical, 6)
+                if i < rows.count - 1 {
+                    Divider()
+                }
+            }
+        }
+        .padding(10)
+        .background(Material.ultraThin, in: RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -494,55 +607,42 @@ private struct ServiceDetailPreview: View {
         let time: String
         let name: String
         let state: TimelineState
-        let platform: String?
         var isCurrent: Bool = false
     }
 
     private let stops: [Stop] = [
-        Stop(time: "07:30", name: "London Waterloo", state: .past, platform: "10"),
-        Stop(time: "07:44", name: "Clapham Junction", state: .past, platform: "2"),
-        Stop(time: "08:01", name: "Woking", state: .current, platform: "3", isCurrent: true),
-        Stop(time: "08:23", name: "Basingstoke", state: .future, platform: nil),
-        Stop(time: "08:52", name: "Winchester", state: .future, platform: nil),
-        Stop(time: "09:14", name: "Southampton C", state: .future, platform: "4"),
+        Stop(time: "07:30", name: "Arendelle",              state: .past),
+        Stop(time: "07:51", name: "Valley of the Trolls",   state: .past),
+        Stop(time: "08:09", name: "Oaken's Trading Post",   state: .current, isCurrent: true),
+        Stop(time: "08:28", name: "The North Mountain",     state: .future),
+        Stop(time: "08:47", name: "The Enchanted Forest",   state: .future),
+        Stop(time: "09:10", name: "Ahtohallan",             state: .future),
     ]
 
     var body: some View {
         ZStack {
-            Color(.secondarySystemGroupedBackground)
+            Color.clear
             ScrollView {
                 VStack(spacing: 0) {
                     ForEach(Array(stops.enumerated()), id: \.offset) { i, stop in
+
                         HStack(alignment: .center, spacing: 8) {
-                            // Time
                             Text(stop.time)
                                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                                 .foregroundStyle(stop.state == .future ? .secondary : .primary)
                                 .frame(width: 40, alignment: .trailing)
 
-                            // Timeline
                             MiniTimelineIndicator(
                                 position: i == 0 ? .first : (i == stops.count - 1 ? .last : .middle),
                                 state: stop.state,
                                 isCurrent: stop.isCurrent
                             )
 
-                            // Station name
                             Text(stop.name)
                                 .font(.system(size: 13))
                                 .foregroundStyle(stop.state == .future ? .secondary : .primary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
                                 .fontWeight(stop.isCurrent ? .semibold : .regular)
-
-                            // Platform
-                            if let plat = stop.platform {
-                                Text(plat)
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 2)
-                                    .background(Color(.darkGray), in: RoundedRectangle(cornerRadius: 4))
-                            }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .frame(height: 36)
                     }
@@ -550,7 +650,8 @@ private struct ServiceDetailPreview: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
             }
-            .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 12))
+            .scrollContentBackground(.hidden)
+            .background(Material.ultraThin, in: RoundedRectangle(cornerRadius: 12))
             .padding(16)
         }
     }
@@ -617,13 +718,13 @@ private struct StationInfoPreview: View {
 
     var body: some View {
         ZStack {
-            Color(.secondarySystemGroupedBackground)
+            Color.clear
             VStack(spacing: 12) {
                 HStack(spacing: 8) {
                     Image(systemName: "building.2.fill")
                         .foregroundStyle(Theme.brand)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Manchester Piccadilly")
+                        Text("Arendelle Castle")
                             .font(.subheadline.bold())
                         Text("Managed by Avanti West Coast")
                             .font(.caption)
@@ -648,13 +749,13 @@ private struct StationInfoPreview: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
-                        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 8))
+                        .background(Material.ultraThin, in: RoundedRectangle(cornerRadius: 8))
                     }
                 }
                 .padding(.horizontal, 14)
                 .padding(.bottom, 12)
             }
-            .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 12))
+            .background(Material.ultraThin, in: RoundedRectangle(cornerRadius: 12))
             .padding(16)
         }
     }
@@ -667,7 +768,7 @@ private struct AutoloadPreview: View {
 
     var body: some View {
         ZStack {
-            Color(.secondarySystemGroupedBackground)
+            Color.clear
             VStack(spacing: 14) {
                 // Flow diagram
                 VStack(spacing: 0) {
@@ -694,7 +795,7 @@ private struct AutoloadPreview: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 8))
+                .background(Material.ultraThin, in: RoundedRectangle(cornerRadius: 8))
                 .padding(.horizontal, 16)
             }
             .padding(.vertical, 16)
@@ -738,7 +839,7 @@ private struct FlowStep: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 10))
+        .background(Material.ultraThin, in: RoundedRectangle(cornerRadius: 10))
         .padding(.horizontal, 16)
         .animation(.spring(duration: 0.4), value: isActive)
     }
@@ -753,5 +854,65 @@ private struct FlowArrow: View {
             .foregroundStyle(isActive ? Theme.brand : Color(.tertiaryLabel))
             .padding(.vertical, 2)
             .animation(.spring(duration: 0.4), value: isActive)
+    }
+}
+
+// MARK: All features
+
+private struct AllFeaturesPreview: View {
+
+    private struct Feature {
+        let icon: String
+        let title: String
+        let description: String
+    }
+
+    private let features: [Feature] = [
+        Feature(icon: "rectangle.stack.fill",       title: "Home Screen Widgets",         description: "Small, medium & large. Single or dual station."),
+        Feature(icon: "sparkles",                   title: "Split-Flap Animation",        description: "Vintage board effect on every refresh."),
+        Feature(icon: "paintpalette.fill",           title: "Operator Livery Colours",     description: "7 row themes with authentic TOC colours."),
+        Feature(icon: "clock.arrow.circlepath",      title: "Earlier & Later Trains",      description: "Browse any board forward or back in time."),
+        Feature(icon: "list.bullet.rectangle.fill",  title: "Full Service Details",        description: "Every calling point, live delays & formation."),
+        Feature(icon: "clock.fill",                 title: "Next Service on Favourites",  description: "See your next train without opening the board."),
+        Feature(icon: "star.fill",                  title: "Unlimited Favourites",        description: "No cap on starred stations or filtered boards."),
+        Feature(icon: "location.fill",              title: "Unlimited Nearby Stations",   description: "Show as many nearby stations as you like."),
+        Feature(icon: "bolt.fill",                  title: "Smart Auto-Load",             description: "Opens your nearest favourite automatically."),
+        Feature(icon: "building.2.fill",            title: "Station Information",         description: "Hours, facilities, accessibility & more."),
+        Feature(icon: "arrow.up.doc.fill",          title: "Favourites Backup",           description: "Export & import your boards as JSON."),
+        Feature(icon: "link",                       title: "URL Schemes & Shortcuts",     description: "Deep links and full Shortcuts app support."),
+    ]
+
+    private let columns = [GridItem(.flexible()), GridItem(.flexible())]
+
+    var body: some View {
+        ZStack {
+            Color.clear
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 8) {
+                    ForEach(features, id: \.title) { feature in
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: feature.icon)
+                                .font(.subheadline)
+                                .foregroundStyle(Theme.brand)
+                                .frame(width: 20)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(feature.title)
+                                    .font(.caption.bold())
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Text(feature.description)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                        .background(Material.ultraThin, in: RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+                .padding(14)
+            }
+            .scrollContentBackground(.hidden)
+        }
     }
 }
