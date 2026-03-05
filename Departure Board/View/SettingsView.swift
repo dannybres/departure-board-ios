@@ -21,7 +21,7 @@ struct SettingsView: View {
     @AppStorage("stationNamesSmallCaps") var stationNamesSmallCaps: Bool = false
     @AppStorage(SharedDefaults.Keys.rowTheme) var rowThemeRaw: String = RowTheme.none.rawValue
     @AppStorage(SharedDefaults.Keys.colourVibrancy) var colourVibrancyRaw: String = ColourVibrancy.vibrant.rawValue
-    @AppStorage(SharedDefaults.Keys.widgetRowTheme, store: SharedDefaults.shared) var widgetRowThemeRaw: String = cWidgetTheme.none.rawValue
+    @AppStorage(SharedDefaults.Keys.widgetRowTheme, store: SharedDefaults.shared) var widgetRowThemeRaw: String = WidgetTheme.none.rawValue
     @AppStorage(SharedDefaults.Keys.widgetColourMode, store: SharedDefaults.shared) var widgetColourMode: String = "brand"
     @AppStorage(SharedDefaults.Keys.widgetSplitFlap, store: SharedDefaults.shared) var widgetSplitFlap: Bool = false
     @AppStorage("autoLoadMode") var autoLoadMode: String = "off"
