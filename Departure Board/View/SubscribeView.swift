@@ -41,6 +41,96 @@ private struct PaywallPage: Identifiable {
     let preview: AnyView
 }
 
+private struct MockPlaceTheme: CaseIterable {
+    let widgetStation: String
+    let baseStation: String
+    let secondStation: String
+    let filterFrom: String
+    let castleStation: String
+    let primaryDestinations: [String]
+    let secondaryDestinations: [String]
+    let valleyStop: String
+    let tradingPostStop: String
+    let mountainStop: String
+    let forestStop: String
+
+    static let frozen = MockPlaceTheme(
+        widgetStation: "Arendelle Central",
+        baseStation: "Arendelle",
+        secondStation: "Ice Palace",
+        filterFrom: "Weselton",
+        castleStation: "Arendelle Castle",
+        primaryDestinations: ["North Mountain", "Enchanted Forest", "Weselton Intl", "Ahtohallan"],
+        secondaryDestinations: ["Ice Palace", "Troll Valley", "Oaken's Halt", "Southern Isles"],
+        valleyStop: "Valley of the Trolls",
+        tradingPostStop: "Oaken's Trading Post",
+        mountainStop: "The North Mountain",
+        forestStop: "The Enchanted Forest"
+    )
+
+    static let everton = MockPlaceTheme(
+        widgetStation: "Goodison Central",
+        baseStation: "Goodison",
+        secondStation: "Bramley-Moore Dock",
+        filterFrom: "Walton",
+        castleStation: "Goodison Park",
+        primaryDestinations: ["Gwladys Street", "Stanley Park", "Kirkdale Junction", "Royal Blue Wharf"],
+        secondaryDestinations: ["County Road", "Dixie Dean Halt", "Mersey View", "Dockside Exchange"],
+        valleyStop: "Bullens Road",
+        tradingPostStop: "St Luke's Market",
+        mountainStop: "Stanley Park North",
+        forestStop: "Walton Village"
+    )
+
+    static let taylor = MockPlaceTheme(
+        widgetStation: "Cornelia Central",
+        baseStation: "Cornelia",
+        secondStation: "Midnight Junction",
+        filterFrom: "Willowbank",
+        castleStation: "Lavender House",
+        primaryDestinations: ["Cardigan Park", "August Fields", "Maroon Cross", "Archer's Green"],
+        secondaryDestinations: ["Ivy Bridge", "Champagne Coast", "Starlight Pier", "Snow On Beach"],
+        valleyStop: "Folkmore Valley",
+        tradingPostStop: "Paper Rings Arcade",
+        mountainStop: "Willowbank North",
+        forestStop: "Evergreen Woods"
+    )
+
+    static let podcast = MockPlaceTheme(
+        widgetStation: "Relay Central",
+        baseStation: "Relay",
+        secondStation: "ATP Junction",
+        filterFrom: "Connected",
+        castleStation: "Upgrade House",
+        primaryDestinations: ["Cortex Park", "Clockwise Quay", "Analog Wharf", "Overcast Yard"],
+        secondaryDestinations: ["Member Station", "Topical Avenue", "Showtown", "Member Feed"],
+        valleyStop: "Topical Valley",
+        tradingPostStop: "Render Market",
+        mountainStop: "Cortex North",
+        forestStop: "Connected Woods"
+    )
+
+    static let formulaOne = MockPlaceTheme(
+        widgetStation: "Silverstone Central",
+        baseStation: "Silverstone",
+        secondStation: "Monaco Harbour",
+        filterFrom: "Monza",
+        castleStation: "Paddock House",
+        primaryDestinations: ["Suzuka Gardens", "Spa Valley", "Imola Park", "Interlagos"],
+        secondaryDestinations: ["Zandvoort Dunes", "Albert Park", "Marina Bay", "Redline Terminal"],
+        valleyStop: "Eau Rouge",
+        tradingPostStop: "Pitlane Exchange",
+        mountainStop: "Copse Corner",
+        forestStop: "Ascari Woods"
+    )
+
+    static let allCases: [MockPlaceTheme] = [.frozen, .everton, .taylor, .podcast, .formulaOne]
+
+    static var random: MockPlaceTheme {
+        allCases.randomElement() ?? .frozen
+    }
+}
+
 // MARK: - Main sheet
 
 struct SubscribeView: View {
@@ -55,80 +145,81 @@ struct SubscribeView: View {
     }
 
     @Environment(\.dismiss) private var dismiss
-    private let initialFeature: PaywallFeature
     @State private var currentPage: Int
     @State private var billingPeriod: BillingPeriod = .monthly
+    @State private var mockPlaceTheme: MockPlaceTheme = .random
 
-    init(initialFeature: PaywallFeature = .all) {
-        self.initialFeature = initialFeature
-        _currentPage = State(initialValue: initialFeature.page)
+    init(initialFeature _: PaywallFeature = .all) {
+        _currentPage = State(initialValue: 0)
     }
 
-    private let pages: [PaywallPage] = [
-        PaywallPage(
+    private var pages: [PaywallPage] {
+        [
+            PaywallPage(
             id: 0,
             icon: "star.fill",
             title: "Live on Your Home Screen",
             subtitle: "Glance at your next train without even opening the app. Small, medium, and large widgets — for one station or two at once.",
-            preview: AnyView(WidgetPreview())
-        ),
-        PaywallPage(
+            preview: AnyView(WidgetPreview(places: mockPlaceTheme))
+            ),
+            PaywallPage(
             id: 1,
             icon: "lock.iphone",
             title: "Lock Screen Widgets",
             subtitle: "See your next train directly on your Lock Screen with glanceable inline, circular, and rectangular layouts.",
-            preview: AnyView(WidgetPreview())
-        ),
-        PaywallPage(
+            preview: AnyView(WidgetPreview(places: mockPlaceTheme))
+            ),
+            PaywallPage(
             id: 2,
             icon: "paintpalette.fill",
             title: "Boards That Turn Heads",
             subtitle: "Choose from seven row styles and full operator livery colours. Your board, your look — from subtle to striking.",
-            preview: AnyView(ThemePreview())
-        ),
-        PaywallPage(
+            preview: AnyView(ThemePreview(places: mockPlaceTheme))
+            ),
+            PaywallPage(
             id: 3,
             icon: "star.leadinghalf.filled",
             title: "Your Stations, Unlimited",
             subtitle: "Star as many stations as you like and see your next departure right on the card — tap to jump straight to the service.",
-            preview: AnyView(FavouritesPreview())
-        ),
-        PaywallPage(
+            preview: AnyView(FavouritesPreview(places: mockPlaceTheme))
+            ),
+            PaywallPage(
             id: 4,
             icon: "clock.arrow.circlepath",
             title: "See Earlier & Later Trains",
             subtitle: "Jump forward or back in time on any board. Perfect for planning connections or checking if you've already missed the last train.",
-            preview: AnyView(TravelModePreview())
-        ),
-        PaywallPage(
+            preview: AnyView(TravelModePreview(places: mockPlaceTheme))
+            ),
+            PaywallPage(
             id: 5,
             icon: "list.bullet.rectangle.fill",
             title: "Every Stop, Every Detail",
             subtitle: "The full calling-point timeline with live delays at each stop, plus carriage formation and live loading percentages where available.",
-            preview: AnyView(ServiceDetailPreview())
-        ),
-        PaywallPage(
+            preview: AnyView(ServiceDetailPreview(places: mockPlaceTheme))
+            ),
+            PaywallPage(
             id: 6,
             icon: "building.2.fill",
             title: "Know Your Station",
             subtitle: "Ticket office hours, accessibility facilities, car parking, toilets, left luggage, and more — all in one place.",
-            preview: AnyView(StationInfoPreview())
-        ),
-        PaywallPage(
+            preview: AnyView(StationInfoPreview(places: mockPlaceTheme))
+            ),
+            PaywallPage(
             id: 7,
             icon: "bolt.fill",
             title: "Opens the Right Board, Automatically",
             subtitle: "The app opens your nearest favourite board the moment you arrive at a station. Hook it into Shortcuts for full automation.",
             preview: AnyView(AutoloadPreview())
-        ),
-        PaywallPage(
+            ),
+            PaywallPage(
             id: 8,
             icon: "checkmark.seal.fill",
             title: "Everything in One Subscription",
             subtitle: "One price gets you everything in Departure Board Pro — and everything that comes next.",
             preview: AnyView(AllFeaturesPreview())
-        ),
-    ]
+            ),
+        ]
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -137,7 +228,8 @@ struct SubscribeView: View {
             bottomBar
         }
         .onAppear {
-            currentPage = initialFeature.page
+            currentPage = 0
+            mockPlaceTheme = .random
         }
         .ignoresSafeArea(edges: .bottom)
         .presentationBackground(.regularMaterial)
@@ -267,16 +359,18 @@ struct SubscribeView: View {
 // MARK: Widgets
 
 private struct WidgetPreview: View {
+    let places: MockPlaceTheme
+
     var body: some View {
         ZStack {
             Color.clear
             VStack(spacing: 10) {
                 // Medium widget mock
-                MockWidget(station: "Arendelle Central", rows: [
-                    ("07:42", "North Mountain", "On time", "1"),
-                    ("07:55", "Enchanted Forest", "On time", "3"),
-                    ("08:03", "Weselton Intl", "Delayed", "2"),
-                    ("08:17", "Ahtohallan",     "On time", "5"),
+                MockWidget(station: places.widgetStation, rows: [
+                    ("07:42", places.primaryDestinations[0], "On time", "1"),
+                    ("07:55", places.primaryDestinations[1], "On time", "3"),
+                    ("08:03", places.primaryDestinations[2], "Delayed", "2"),
+                    ("08:17", places.primaryDestinations[3], "On time", "5"),
                 ])
                 .frame(height: 140)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
@@ -337,16 +431,20 @@ private struct MockWidget: View {
 // MARK: Themes
 
 private struct ThemePreview: View {
-    // (time, destination, toc, platform, isDelayed, delayText)
-    private let rows: [(String, String, String, Color, String, Bool, String?)] = [
-        ("08:14", "North Mountain",    "GR", "1", false, nil),
-        ("08:22", "Weselton Intl",     "TP", "3", true,  "Exp 08:31"),
-        ("08:31", "Enchanted Forest",  "GW", "2", false, nil),
-    ].map { time, dest, toc, plat, delayed, delay in
-        (time, dest, toc, OperatorColours.entry(for: toc).primary, plat, delayed, delay)
-    }
+    let places: MockPlaceTheme
 
+    // (time, destination, toc, platform, isDelayed, delayText)
     private let themes: [RowTheme] = [.trackline, .timeTile, .timePanel]
+
+    private var rows: [(String, String, String, Color, String, Bool, String?)] {
+        [
+            ("08:14", places.primaryDestinations[0], "GR", "1", false, nil),
+            ("08:22", places.primaryDestinations[2], "TP", "3", true, "Exp 08:31"),
+            ("08:31", places.primaryDestinations[1], "GW", "2", false, nil),
+        ].map { time, dest, toc, plat, delayed, delay in
+            (time, dest, toc, OperatorColours.entry(for: toc).primary, plat, delayed, delay)
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -450,6 +548,7 @@ private struct ThemedRow: View {
 
 private struct MockFavouriteItem {
     let crs: String
+    let sourceCrs: String?
     let name: String
     let boardType: String   // "dep" | "arr" | "filter"
     let filterLabel: String?
@@ -463,26 +562,30 @@ private struct MockFavouriteItem {
 }
 
 private struct FavouritesPreview: View {
-    private let items: [MockFavouriteItem] = [
-        MockFavouriteItem(
-            crs: "ARE", name: "Arendelle", boardType: "dep",
+    let places: MockPlaceTheme
+
+    private var items: [MockFavouriteItem] {
+        [
+            MockFavouriteItem(
+            crs: "ARE", sourceCrs: nil, name: places.baseStation, boardType: "dep",
             filterLabel: nil, trailingIcon: "arrow.up.right",
-            pillTime: "08:22", pillDest: "North Mountain",
+            pillTime: "08:22", pillDest: places.primaryDestinations[0],
             pillPlatform: nil, pillDelayed: false, pillExpected: nil
-        ),
-        MockFavouriteItem(
-            crs: "ICP", name: "Ice Palace", boardType: "dep",
+            ),
+            MockFavouriteItem(
+            crs: "ICE", sourceCrs: nil, name: places.secondStation, boardType: "dep",
             filterLabel: nil, trailingIcon: "arrow.up.right",
-            pillTime: "08:07", pillDest: "Arendelle",
+            pillTime: "08:07", pillDest: places.baseStation,
             pillPlatform: nil, pillDelayed: true, pillExpected: "08:14"
-        ),
-        MockFavouriteItem(
-            crs: "ARE", name: "Arendelle", boardType: "filter",
-            filterLabel: "From Weselton", trailingIcon: "arrow.right.arrow.left",
-            pillTime: "08:31", pillDest: "Weselton Intl",
+            ),
+            MockFavouriteItem(
+            crs: "ARE", sourceCrs: "WES", name: places.baseStation, boardType: "filter",
+            filterLabel: "From \(places.filterFrom)", trailingIcon: "arrow.right.arrow.left",
+            pillTime: "08:31", pillDest: places.primaryDestinations[2],
             pillPlatform: nil, pillDelayed: false, pillExpected: nil
-        ),
-    ]
+            ),
+        ]
+    }
 
     var body: some View {
         ZStack {
@@ -511,7 +614,7 @@ private struct MockFavouriteRow: View {
                 // CRS pill (or stacked filter pill)
                 if item.boardType == "filter" {
                     VStack(spacing: 1) {
-                        Text("WES")
+                        Text(item.sourceCrs ?? "WES")
                             .font(Theme.crsFont)
                             .foregroundStyle(Theme.brand)
                         Image(systemName: "arrow.down")
@@ -594,19 +697,24 @@ private struct MockFavouriteRow: View {
 // MARK: Travel mode
 
 private struct TravelModePreview: View {
+    let places: MockPlaceTheme
 
-    private let nowRows: [(String, String)] = [
-        ("08:14", "North Mountain"),
-        ("08:22", "Weselton Intl"),
-        ("08:31", "Enchanted Forest"),
-        ("08:45", "Ahtohallan"),
-    ]
-    private let laterRows: [(String, String)] = [
-        ("09:18", "Ice Palace"),
-        ("09:27", "Troll Valley"),
-        ("09:34", "Oaken's Halt"),
-        ("09:52", "Southern Isles"),
-    ]
+    private var nowRows: [(String, String)] {
+        [
+            ("08:14", places.primaryDestinations[0]),
+            ("08:22", places.primaryDestinations[2]),
+            ("08:31", places.primaryDestinations[1]),
+            ("08:45", places.primaryDestinations[3]),
+        ]
+    }
+    private var laterRows: [(String, String)] {
+        [
+            ("09:18", places.secondaryDestinations[0]),
+            ("09:27", places.secondaryDestinations[1]),
+            ("09:34", places.secondaryDestinations[2]),
+            ("09:52", places.secondaryDestinations[3]),
+        ]
+    }
 
     var body: some View {
         ZStack {
@@ -664,6 +772,8 @@ private struct TravelModePreview: View {
 // MARK: Service detail
 
 private struct ServiceDetailPreview: View {
+    let places: MockPlaceTheme
+
     private struct Stop {
         let time: String
         let name: String
@@ -671,14 +781,16 @@ private struct ServiceDetailPreview: View {
         var isCurrent: Bool = false
     }
 
-    private let stops: [Stop] = [
-        Stop(time: "07:30", name: "Arendelle",              state: .past),
-        Stop(time: "07:51", name: "Valley of the Trolls",   state: .past),
-        Stop(time: "08:09", name: "Oaken's Trading Post",   state: .current, isCurrent: true),
-        Stop(time: "08:28", name: "The North Mountain",     state: .future),
-        Stop(time: "08:47", name: "The Enchanted Forest",   state: .future),
-        Stop(time: "09:10", name: "Ahtohallan",             state: .future),
-    ]
+    private var stops: [Stop] {
+        [
+            Stop(time: "07:30", name: places.baseStation, state: .past),
+            Stop(time: "07:51", name: places.valleyStop, state: .past),
+            Stop(time: "08:09", name: places.tradingPostStop, state: .current, isCurrent: true),
+            Stop(time: "08:28", name: places.mountainStop, state: .future),
+            Stop(time: "08:47", name: places.forestStop, state: .future),
+            Stop(time: "09:10", name: places.primaryDestinations[3], state: .future),
+        ]
+    }
 
     var body: some View {
         ZStack {
@@ -768,6 +880,8 @@ private struct MiniTimelineIndicator: View {
 // MARK: Station info
 
 private struct StationInfoPreview: View {
+    let places: MockPlaceTheme
+
     private let facilities: [(String, String, Bool)] = [
         ("ticket.fill",        "Ticket Office",      true),
         ("figure.roll",        "Step-free Access",   true),
@@ -785,7 +899,7 @@ private struct StationInfoPreview: View {
                     Image(systemName: "building.2.fill")
                         .foregroundStyle(Theme.brand)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Arendelle Castle")
+                        Text(places.castleStation)
                             .font(.subheadline.bold())
                         Text("Managed by Avanti West Coast")
                             .font(.caption)

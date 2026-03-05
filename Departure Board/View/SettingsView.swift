@@ -42,6 +42,7 @@ struct SettingsView: View {
     @FocusState private var supportCodeFieldFocused: Bool
     @State private var supportMessage: String?
     @State private var showSupportMessage = false
+    @State private var showDebugReviewPrePrompt = false
     @State private var releaseCardImage: UIImage? = nil
     @State private var showReleaseCardShare = false
     @State private var lastRefresh: Date? = StationCache.lastRefreshDate()
@@ -74,6 +75,18 @@ struct SettingsView: View {
 
     private var hasPremiumAccess: Bool {
         entitlement.hasPremiumAccess
+    }
+
+    private var showDebugUI: Bool {
+#if DEBUG
+        true
+#else
+        showDebug
+#endif
+    }
+
+    private var reviewStats: ReviewPromptManager.DebugStats {
+        ReviewPromptManager.shared.debugStats
     }
 
     private func requirePremium(_ feature: PaywallFeature = .all) -> Bool {
@@ -612,7 +625,7 @@ struct SettingsView: View {
                 Text("Controls whether Departure Board appears in Siri suggestions and Spotlight search. Clearing removes donated suggestions and local routine history.")
             }
 
-            if showDebug {
+            if showDebugUI {
                 Section("Debug") {
                     HStack {
                         Text("API")
@@ -656,6 +669,27 @@ struct SettingsView: View {
                             entitlement.setSubscriptionActive(false)
                         }
                         .buttonStyle(.bordered)
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Review Prompt Stats")
+                            .font(.subheadline.weight(.semibold))
+                        HStack { Text("Good-day streak"); Spacer(); Text("\(reviewStats.goodDayStreak)").foregroundStyle(.secondary) }
+                        HStack { Text("Last good day"); Spacer(); Text(reviewStats.lastGoodDay?.formatted(date: .abbreviated, time: .omitted) ?? "Never").foregroundStyle(.secondary) }
+                        HStack { Text("Last prompt"); Spacer(); Text(reviewStats.lastPromptDate?.formatted(date: .abbreviated, time: .shortened) ?? "Never").foregroundStyle(.secondary) }
+                        HStack { Text("Prompt count (\(reviewStats.promptYear))"); Spacer(); Text("\(reviewStats.promptCountThisYear)").foregroundStyle(.secondary) }
+                        HStack { Text("Declines"); Spacer(); Text("\(reviewStats.declineCount)").foregroundStyle(.secondary) }
+                        HStack { Text("Review completed"); Spacer(); Text(reviewStats.reviewCompleted ? "Yes" : "No").foregroundStyle(.secondary) }
+                        HStack { Text("Bad this session"); Spacer(); Text(reviewStats.hadBadExperienceThisSession ? "Yes" : "No").foregroundStyle(.secondary) }
+                        HStack { Text("Prompted this session"); Spacer(); Text(reviewStats.didPromptThisSession ? "Yes" : "No").foregroundStyle(.secondary) }
+                        HStack { Text("Can prompt now"); Spacer(); Text(reviewStats.canPromptNow ? "Yes" : "No").foregroundStyle(.secondary) }
+                        Button("Reset Review Stats") {
+                            ReviewPromptManager.shared.resetForDebug()
+                        }
+                        .buttonStyle(.bordered)
+                        Button("Force App Review Prompt") {
+                            showDebugReviewPrePrompt = true
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
@@ -781,11 +815,6 @@ struct SettingsView: View {
                     }
                 }
                 .navigationTitle("Support")
-                .onAppear {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        supportCodeFieldFocused = true
-                    }
-                }
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") {
@@ -818,8 +847,28 @@ struct SettingsView: View {
         }, message: {
             Text(awarenessMessage ?? "")
         })
+        .alert("Enjoying Departure Board?", isPresented: $showDebugReviewPrePrompt) {
+            Button("Yes") {
+                ReviewPromptManager.shared.handlePositiveReviewResponse()
+            }
+            Button("Not really", role: .cancel) {
+                ReviewPromptManager.shared.handleNegativeReviewResponse()
+            }
+        } message: {
+            Text("Would you like to leave a quick App Store review?")
+        }
         .onAppear {
             lastAllowedAutoLoadMode = autoLoadMode == "nearest" ? "nearest" : "off"
+        }
+        .onChange(of: showSupportCodeSheet) {
+            if showSupportCodeSheet {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(250))
+                    supportCodeFieldFocused = true
+                }
+            } else {
+                supportCodeFieldFocused = false
+            }
         }
         .onChange(of: siriSuggestionsEnabled) {
             if !siriSuggestionsEnabled {

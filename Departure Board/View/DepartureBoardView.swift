@@ -47,6 +47,7 @@ struct DepartureBoardView: View {
     @State private var showNrccMessages = false
     @State private var showSubscribe = false
     @State private var subscribeFeature: PaywallFeature = .all
+    @State private var showReviewPrompt = false
     @State private var pendingFilterSheetNavigation: StationDestination?
     @AppStorage(SharedDefaults.Keys.favouriteBoards, store: SharedDefaults.shared) private var favouriteBoardsData: Data = Data()
     @AppStorage(SharedDefaults.Keys.rowTheme) private var rowThemeRaw: String = RowTheme.none.rawValue
@@ -288,6 +289,16 @@ struct DepartureBoardView: View {
         .navigationBarTitleDisplayMode(.large)
         .sheet(isPresented: $showSubscribe) {
             SubscribeView(initialFeature: subscribeFeature)
+        }
+        .alert("Enjoying Departure Board?", isPresented: $showReviewPrompt) {
+            Button("Yes") {
+                ReviewPromptManager.shared.handlePositiveReviewResponse()
+            }
+            Button("Not really", role: .cancel) {
+                ReviewPromptManager.shared.handleNegativeReviewResponse()
+            }
+        } message: {
+            Text("Would you like to leave a quick App Store review?")
         }
         .navigationDestination(for: Service.self) { service in
             if entitlement.hasPremiumAccess {
@@ -757,6 +768,10 @@ struct DepartureBoardView: View {
                 filterName: filter.station?.name,
                 isFavourite: isBoardFavourited
             )
+
+            if ReviewPromptManager.shared.recordGoodExperience() {
+                showReviewPrompt = true
+            }
         } catch {
             if boardLoad.board == nil {
                 if !silent { boardLoad.errorMessage = DepartureBoardView.boardErrorMessages.randomElement()! }
@@ -764,6 +779,9 @@ struct DepartureBoardView: View {
                 boardLoad.showingStaleCache = false
             } else {
                 boardLoad.showingStaleCache = true
+            }
+            if !silent {
+                ReviewPromptManager.shared.recordBadExperience()
             }
         }
         boardLoad.isLoading = false
