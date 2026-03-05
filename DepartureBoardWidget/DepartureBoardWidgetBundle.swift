@@ -13,5 +13,6 @@ struct DepartureBoardWidgetBundle: WidgetBundle {
     var body: some Widget {
         SingleStationWidget()
         DualStationWidget()
+        LockScreenBoardWidget()
     }
 }

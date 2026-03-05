@@ -55,13 +55,7 @@ struct StationInfoView: View {
                 // Map — from cache immediately, upgraded with API data when available
                 if let lat = mapLatitude, let lon = mapLongitude {
                     Section {
-                        Map(initialPosition: .region(MKCoordinateRegion(
-                            center: CLLocationCoordinate2D(latitude: lat, longitude: lon),
-                            span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005)
-                        ))) {
-                            Marker(mapName, systemImage: "tram.fill", coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon))
-                                .tint(Theme.brand)
-                        }
+                        mapPreview(lat: lat, lon: lon)
                         .frame(height: 180)
                         .listRowInsets(EdgeInsets())
                         .onTapGesture {
@@ -1022,6 +1016,33 @@ struct StationInfoView: View {
 
     private func copyToClipboard(_ text: String) {
         UIPasteboard.general.string = text
+    }
+}
+
+private extension StationInfoView {
+    @ViewBuilder
+    func mapPreview(lat: Double, lon: Double) -> some View {
+        let coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        let region = MKCoordinateRegion(
+            center: coordinate,
+            span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005)
+        )
+
+        if #available(iOS 17.0, *) {
+            Map(initialPosition: .region(region)) {
+                Marker(mapName, systemImage: "tram.fill", coordinate: coordinate)
+                    .tint(Theme.brand)
+            }
+        } else {
+            Map(coordinateRegion: .constant(region), annotationItems: [StationMapPin(coordinate: coordinate)]) { pin in
+                MapMarker(coordinate: pin.coordinate, tint: Theme.brand)
+            }
+        }
+    }
+
+    struct StationMapPin: Identifiable {
+        let id = UUID()
+        let coordinate: CLLocationCoordinate2D
     }
 }
 

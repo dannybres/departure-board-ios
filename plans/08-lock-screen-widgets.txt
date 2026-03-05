@@ -1,157 +1,159 @@
-FEATURE: Lock Screen & Small/Medium Widgets
-=============================================
+FEATURE: Lock Screen Widget Plan (building on existing Home Screen widgets)
+=======================================================================
 
 SUMMARY
 -------
-Add Lock Screen widgets (accessoryRectangular, accessoryCircular,
-accessoryInline) and systemSmall / systemMedium home screen sizes so
-users have more widget options beyond the current large-only widgets.
+Home Screen widgets already exist in this project. This plan adds Lock Screen
+widget families with commuter-focused, low-noise glanceable info:
+- accessoryInline
+- accessoryCircular
+- accessoryRectangular
 
-WHY
----
-The large widget is great but takes a lot of home screen space. Many
-users want a glanceable small widget showing just the next 1-2 trains,
-or a Lock Screen widget they can see without unlocking. These are the
-most common widget sizes used in practice.
+Goal: deliver fast-to-read "next train" status on Lock Screen while keeping
+home widget behavior unchanged.
 
-WIDGET VARIANTS
----------------
+PRODUCT GOALS
+-------------
+1) Glanceability in < 1 second
+   - User should understand next departure state without unlocking.
+2) Reliability over density
+   - Prefer one clear item over too much compressed text.
+3) Minimal setup friction
+   - Reuse current station/board AppIntent selection model.
+4) Consistent deep links
+   - Tap opens the same station board route used by current widgets.
 
-1. accessoryInline (Lock Screen, single line)
-   - Shows: "14:30 → Portsmouth · On time"
-   - Next departure from configured station.
-   - Taps through to station board.
+WIDGET DEFINITIONS
+------------------
 
-2. accessoryRectangular (Lock Screen, small rectangle)
-   - Shows 2-3 departures in compact rows:
-     "14:30 Portsmouth    Plat 3"
-     "14:45 Exeter        Plat 7"
-     "15:00 Bristol     Delayed"
-   - Station name as tiny header.
+1. accessoryInline (single-line context)
+   Primary output examples:
+   - "14:32 → Waterloo On time"
+   - "14:32 → Waterloo +7m"
+   - "14:32 → Waterloo Cancelled"
 
-3. accessoryCircular (Lock Screen, small circle)
-   - Shows next departure time prominently: "14:30"
-   - Small text below: platform or delay indicator.
-   - Colour-coded ring: green = on time, orange = delayed, red = cancelled.
+   Content rules:
+   - One service only (next non-departed service).
+   - Truncate destination aggressively.
+   - If no services: "No departures soon".
 
-4. systemSmall (Home Screen)
-   - Station name header in brand colour.
-   - Next 2 departures with time, destination (truncated), status.
-   - Platform badge.
-   - Tap → deep link to station.
+2. accessoryCircular (time-first)
+   Primary output:
+   - Center: scheduled or expected time (e.g. "14:32")
+   - Footer/small text: status shorthand ("On time", "+7", "Canx")
 
-5. systemMedium (Home Screen)
-   - Station name header.
-   - Next 3-4 departures with full destination name, time, platform, status.
-   - Same row layout as the large widget but with fewer rows.
-   - Tap service row → deep link to service.
+   Content rules:
+   - One service only.
+   - Use symbolic color semantics where available, but ensure text still
+     communicates state in monochrome environments.
 
-FILES TO MODIFY
----------------
-1. DepartureBoardWidget.swift
-   - Add .systemSmall and .systemMedium to SingleStationWidget's
-     supportedFamilies.
-   - Add accessory families to a new LockScreenWidget definition.
-   - Adjust SingleStationWidgetView to adapt layout based on widget
-     family using @Environment(\.widgetFamily).
-   - Create new views for each accessory variant.
+3. accessoryRectangular (compact list)
+   Primary output:
+   - Header: station short name
+   - Rows: top 2 departures max
 
-2. DepartureBoardWidgetBundle.swift
-   - Register the new LockScreenWidget.
+   Row shape:
+   - time | destination (truncated) | status/platform token
 
-IMPLEMENTATION
+   Content rules:
+   - Prefer showing 2 useful rows over 3 cramped rows.
+
+CONFIGURATION MODEL
+-------------------
+Reuse `SingleStationIntent` for lock-screen widget configuration so users can
+pick the same board source (favourite, departures/arrivals, filtered board,
+nearest station sentinel).
+
+Do NOT enable lock-screen families for dual-station widget; readability is too
+poor for split content.
+
+TECHNICAL PLAN
 --------------
 
-SingleStationWidgetView adapts by family:
+A) Widget registration
+- File: `DepartureBoardWidget/DepartureBoardWidgetBundle.swift`
+- Add a dedicated `LockScreenBoardWidget` in the bundle.
+- Keep existing home widgets intact.
 
-  @Environment(\.widgetFamily) var family
+B) Widget declaration
+- File: `DepartureBoardWidget/DepartureBoardWidget.swift`
+- Add `LockScreenBoardWidget` using `AppIntentConfiguration` +
+  `SingleStationProvider`.
+- `supportedFamilies`:
+  - `.accessoryInline`
+  - `.accessoryCircular`
+  - `.accessoryRectangular`
 
-  var body: some View {
-      switch family {
-      case .systemSmall:
-          SmallWidgetView(station: station)
-      case .systemMedium:
-          MediumWidgetView(station: station)
-      case .systemLarge:
-          // existing layout
-      case .accessoryRectangular:
-          RectangularWidgetView(station: station)
-      case .accessoryCircular:
-          CircularWidgetView(station: station)
-      case .accessoryInline:
-          InlineWidgetView(station: station)
-      default:
-          // fallback
-      }
-  }
+C) Family-specific views
+- Add 3 focused view components:
+  - `InlineBoardView`
+  - `CircularBoardView`
+  - `RectangularBoardView`
+- Add shared formatter helper for status shorthand and destination truncation.
 
-Alternatively, create separate Widget structs for Lock Screen vs Home
-Screen to allow independent configuration (recommended — keeps things
-clean and allows different supportedFamilies per widget).
+D) Data slicing strategy
+- Keep provider fetch size unchanged or moderately reduced.
+- Slice in view layer per family:
+  - Inline: first 1 service
+  - Circular: first 1 service
+  - Rectangular: first 2 services
 
-Lock Screen widgets use a more limited design palette — no colours
-(rendered as grayscale), limited text, AccessoryWidgetBackground for
-backgrounds.
+E) Deep-link behavior
+- Entire accessory widget opens the configured station board.
+- Keep route parity with current home-screen widget deep links.
 
-SmallWidgetView:
-  VStack(alignment: .leading, spacing: 4) {
-      Text(station.name)
-          .font(.system(.caption2, design: .rounded).bold())
-      ForEach(station.services.prefix(2)) { service in
-          HStack {
-              Text(service.scheduled).font(.caption.monospaced().bold())
-              Text(service.destination).font(.caption2).lineLimit(1)
-              Spacer()
-              statusIndicator(service)
-          }
-      }
-      Spacer()
-      Text("Updated \(entry.date, style: .time)")
-          .font(.system(size: 8))
-          .foregroundStyle(.tertiary)
-  }
+UX & CONTENT RULES
+------------------
+- Status priority:
+  1) Cancelled
+  2) Delayed (+Xm)
+  3) On time
+- Prefer expected/estimated time when materially changed.
+- Avoid verbose wording in Lock Screen contexts.
+- Always provide a meaningful empty/error message:
+  - Empty: "No departures soon"
+  - Error: "Board unavailable"
 
-MediumWidgetView:
-  VStack(alignment: .leading, spacing: 3) {
-      Text(station.name).font(.caption.bold()).foregroundStyle(brand)
-      ForEach(station.services.prefix(4)) { service in
-          // Same as large widget row but slightly more compact
-          WidgetDepartureRow(service: service, compact: true)
-      }
-  }
+ACCESSIBILITY
+-------------
+- Ensure Dynamic Type clipping is controlled with sensible line limits.
+- Avoid relying only on color to convey service state.
+- Keep monospaced time text for fast scanning.
 
-NUM ROWS PER SIZE
------------------
-- systemSmall: fetch 2 services
-- systemMedium: fetch 4 services
-- systemLarge: fetch 6 (single) or 3 (dual) — unchanged
-- accessoryRectangular: fetch 3 services
-- accessoryCircular: fetch 1 service
-- accessoryInline: fetch 1 service
-
-The provider should pass different numRows based on context.family.
-Since we're using AppIntentTimelineProvider, we can check
-context.family in snapshot() and timeline() to determine row count.
-
-Wait — the current providers don't have access to the widget family
-from context in a generic way. Solution: use a single provider that
-reads context.family and adjusts, or keep separate providers per size
-group. The simplest approach: add the family sizes to supportedFamilies
-and use @Environment(\.widgetFamily) in the view to decide layout,
-while the provider fetches a reasonable max (6) and the view slices.
-
-EDGE CASES
-----------
-- Lock Screen widgets are grayscale — brand colours won't render. Use
-  AccessoryWidgetBackground and primary/secondary styles only.
-- systemSmall has very limited space — truncate station names and
-  destinations aggressively.
-- accessoryInline is a single line — pick the most useful info.
-- DualStationWidget should NOT support small/medium (not enough space
-  for two stations). Only add new sizes to SingleStationWidget and a
-  new LockScreenWidget.
-
-ESTIMATED SCOPE
+PHASED DELIVERY
 ---------------
-~150 lines of new view code in DepartureBoardWidget.swift (or split
-into a separate file). ~20 lines modifying existing widget definitions.
+Phase 1 (MVP, ~1 day)
+- Add `accessoryInline` + `accessoryRectangular`.
+- Reuse existing data models and intent configuration.
+- Ship with simple status labels and stable deep links.
+
+Phase 2 (~0.5-1 day)
+- Add `accessoryCircular` time-first design.
+- Tune truncation rules and status shorthand.
+
+Phase 3 (polish, optional)
+- Family-specific placeholders and snapshots.
+- Fine-grained typography tuning for long destination names.
+
+ACCEPTANCE CRITERIA
+-------------------
+1) User can add a lock-screen widget and configure station/board via intent.
+2) Inline widget shows one next service with readable state.
+3) Rectangular widget shows up to two services without overlap/clipping.
+4) Circular widget shows one service with state shorthand.
+5) Tapping each widget opens the correct in-app board.
+6) Empty/error states are user-readable (not blank).
+
+TEST CHECKLIST
+--------------
+- Device lock-screen preview for all 3 accessory families.
+- Long destination stress test (truncation behavior).
+- Delay/cancelled/on-time states for each family.
+- Nearest-station sentinel configuration path.
+- Tap-through deep link correctness.
+
+OUT OF SCOPE (for this plan)
+----------------------------
+- Live Activity journey tracking (covered in separate plan).
+- Push disruption notifications.
+- Dual-board lock-screen layout.

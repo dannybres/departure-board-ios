@@ -534,6 +534,175 @@ struct DualStationWidgetView: View {
     }
 }
 
+struct LockScreenBoardWidgetView: View {
+    let entry: DepartureEntry
+    @Environment(\.widgetFamily) private var family
+
+    var body: some View {
+        if entry.isOutsideUK {
+            lockScreenFallback("Abroad")
+        } else if let station = entry.stations.first {
+            switch family {
+            case .accessoryInline:
+                InlineBoardView(station: station)
+            case .accessoryCircular:
+                CircularBoardView(station: station)
+            case .accessoryRectangular:
+                RectangularBoardView(station: station)
+            default:
+                lockScreenFallback("Board")
+            }
+        } else {
+            lockScreenFallback("Set station")
+        }
+    }
+
+    @ViewBuilder
+    private func lockScreenFallback(_ text: String) -> some View {
+        switch family {
+        case .accessoryCircular:
+            ZStack {
+                AccessoryWidgetBackground()
+                Image(systemName: "train.side.front.car")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .widgetLabel(text)
+        default:
+            Text(text)
+        }
+    }
+}
+
+private struct InlineBoardView: View {
+    let station: DepartureEntry.StationDepartures
+
+    var body: some View {
+        if let service = station.services.first {
+            Text("\(service.scheduled) \(destinationArrow(service.destination)) \(statusText(for: service))")
+                .lineLimit(1)
+        } else if station.error {
+            Text("Board unavailable")
+        } else {
+            Text("No departures soon")
+        }
+    }
+}
+
+private struct CircularBoardView: View {
+    let station: DepartureEntry.StationDepartures
+
+    var body: some View {
+        if let service = station.services.first {
+            ZStack {
+                AccessoryWidgetBackground()
+                Text(service.scheduled)
+                    .font(.system(.caption2, design: .monospaced).bold())
+                    .minimumScaleFactor(0.7)
+            }
+            .widgetLabel(circularStatus(for: service))
+        } else {
+            ZStack {
+                AccessoryWidgetBackground()
+                Image(systemName: station.error ? "exclamationmark.triangle" : "minus")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .widgetLabel(station.error ? "Board unavailable" : "No departures")
+        }
+    }
+}
+
+private struct RectangularBoardView: View {
+    let station: DepartureEntry.StationDepartures
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(station.name)
+                .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+
+            if station.error {
+                Text("Board unavailable")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else if station.services.isEmpty {
+                Text("No departures soon")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(station.services.prefix(2))) { service in
+                    HStack(spacing: 4) {
+                        Text(service.scheduled)
+                            .font(.system(.caption2, design: .monospaced).weight(.semibold))
+                            .fixedSize()
+                        Text(service.destination)
+                            .font(.caption2)
+                            .lineLimit(1)
+                        Spacer(minLength: 2)
+                        Text(compactStatus(for: service))
+                            .font(.caption2)
+                            .foregroundStyle(statusColor(for: service))
+                            .lineLimit(1)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private func destinationArrow(_ destination: String) -> String {
+    "→ \(destination)"
+}
+
+private func statusText(for service: DepartureEntry.WidgetService) -> String {
+    if service.isCancelled { return "Cancelled" }
+    if service.isDelayed { return delayedStatus(for: service) }
+    return "On time"
+}
+
+private func delayedStatus(for service: DepartureEntry.WidgetService) -> String {
+    guard let delayMinutes = delayMinutes(for: service), delayMinutes > 0 else {
+        return "Delayed"
+    }
+    return "+\(delayMinutes)m"
+}
+
+private func compactStatus(for service: DepartureEntry.WidgetService) -> String {
+    if service.isCancelled { return "Canx" }
+    if service.isDelayed { return delayedStatus(for: service) }
+    return "On time"
+}
+
+private func circularStatus(for service: DepartureEntry.WidgetService) -> String {
+    if service.isCancelled { return "Canx" }
+    if service.isDelayed { return delayedStatus(for: service) }
+    return "On time"
+}
+
+private func statusColor(for service: DepartureEntry.WidgetService) -> Color {
+    if service.isCancelled { return .red }
+    if service.isDelayed { return .orange }
+    return .secondary
+}
+
+private func delayMinutes(for service: DepartureEntry.WidgetService) -> Int? {
+    guard isTimeFormat(service.status),
+          isTimeFormat(service.scheduled) else { return nil }
+    func minutes(from text: String) -> Int? {
+        let parts = text.split(separator: ":")
+        guard parts.count == 2,
+              let hours = Int(parts[0]),
+              let mins = Int(parts[1]) else { return nil }
+        return hours * 60 + mins
+    }
+    guard let statusMinutes = minutes(from: service.status),
+          let scheduledMinutes = minutes(from: service.scheduled) else { return nil }
+    var delta = statusMinutes - scheduledMinutes
+    if delta < 0 { delta += 24 * 60 }
+    return delta
+}
+
 enum WidgetRowStyle {
     case minimal  // small widget: no status text, colour the time instead
     case compact  // medium / dual: compact with status
@@ -882,4 +1051,23 @@ struct DualStationWidget: Widget {
     }
 }
 
+struct LockScreenBoardWidget: Widget {
+    let kind = "LockScreenBoardWidget"
+
+    var body: some WidgetConfiguration {
+        AppIntentConfiguration(kind: kind, intent: SingleStationIntent.self, provider: SingleStationProvider()) { entry in
+            LockScreenBoardWidgetView(entry: entry)
+                .widgetURL(lockScreenBoardURL(from: entry))
+                .containerBackground(.fill.tertiary, for: .widget)
+        }
+        .configurationDisplayName("Board Next Train")
+        .description("Next departures for your station on the Lock Screen.")
+        .supportedFamilies([.accessoryInline, .accessoryCircular, .accessoryRectangular])
+    }
+}
+
+private func lockScreenBoardURL(from entry: DepartureEntry) -> URL? {
+    guard let station = entry.stations.first else { return nil }
+    return URL(string: "departure://departures/\(station.crs)")
+}
 
