@@ -115,6 +115,7 @@ private struct DetailLoadState {
     var isLoading: Bool = true
     var errorMessage: String? = nil
     var lastUpdate: Date? = nil
+    var showingStaleCache: Bool = false
 }
 
 struct ServiceDetailView: View {
@@ -137,7 +138,7 @@ struct ServiceDetailView: View {
 
     var body: some View {
         Group {
-            if loadState.isLoading {
+            if loadState.isLoading && loadState.detail == nil {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let errorMessage = loadState.errorMessage {
@@ -639,11 +640,18 @@ struct ServiceDetailView: View {
                     .foregroundStyle(Theme.brand)
                     .textCase(nil)
                 if let updated = loadState.lastUpdate {
-                    TimelineView(.periodic(from: updated, by: 10)) { ctx in
-                        Text(ContentView.fuzzyLabel(from: updated, tick: ctx.date))
-                            .font(.caption2)
+                    HStack(spacing: 6) {
+                        TimelineView(.periodic(from: updated, by: 10)) { ctx in
+                            Text(ContentView.fuzzyLabel(from: updated, tick: ctx.date))
+                                .font(.caption2)
+                        }
+                        if loadState.showingStaleCache {
+                            Text("Cached • couldn't refresh")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.red)
+                        }
                     }
-                    .foregroundStyle(Color(.secondaryLabel).opacity(0.65))
+                    .foregroundStyle(loadState.showingStaleCache ? AnyShapeStyle(.red) : AnyShapeStyle(Color(.secondaryLabel).opacity(0.65)))
                     .textCase(nil)
                 }
             }
@@ -806,14 +814,37 @@ struct ServiceDetailView: View {
     }
 
     private func loadDetail(showLoading: Bool = false, silent: Bool = false) async {
+        let cacheKey = ServiceCacheKey(serviceID: service.serviceId)
+
         if showLoading { loadState.isLoading = true }
+
+        if let cached = ServiceCacheStore.shared.load(for: cacheKey) {
+            loadState.detail = cached.detail
+            loadState.lastUpdate = cached.loadedAt
+            loadState.showingStaleCache = false
+            if !silent { loadState.errorMessage = nil }
+        }
+
         do {
             let result = try await StationViewModel.fetchServiceDetail(serviceId: service.serviceId)
             loadState.detail = result
             if !silent { loadState.errorMessage = nil }
             loadState.lastUpdate = Date()
+            loadState.showingStaleCache = false
+            ServiceCacheStore.shared.save(
+                detail: result,
+                for: cacheKey,
+                service: service,
+                boardType: boardType,
+                loadedAt: loadState.lastUpdate ?? Date()
+            )
         } catch {
-            if !silent { loadState.errorMessage = "Failed to load service details" }
+            if loadState.detail == nil, !silent {
+                loadState.errorMessage = "Failed to load service details"
+                loadState.showingStaleCache = false
+            } else if loadState.detail != nil {
+                loadState.showingStaleCache = true
+            }
         }
         loadState.isLoading = false
     }

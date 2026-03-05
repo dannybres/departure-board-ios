@@ -22,8 +22,8 @@ struct ParsedBoardID: Identifiable {
 }
 
 enum APIConfig {
-    static let baseURL = "https://railtest.breslan.co.uk/api/v1"
-//    static let baseURL = "https://rail.breslan.co.uk/api/v1"
+//    static let baseURL = "https://railtest.breslan.co.uk/api/v1"
+    static let baseURL = "https://rail.breslan.co.uk/api/v1"
 }
 
 enum SharedDefaults {

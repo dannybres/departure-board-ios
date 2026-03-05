@@ -14,6 +14,7 @@ private struct BoardLoadState {
     var isLoading: Bool = true
     var errorMessage: String? = nil
     var lastUpdate: Date? = nil
+    var showingStaleCache: Bool = false
 }
 
 private struct FilterState {
@@ -658,11 +659,18 @@ struct DepartureBoardView: View {
     @ViewBuilder
     private var updatedLabel: some View {
         if let updated = boardLoad.lastUpdate {
-            TimelineView(.periodic(from: updated, by: 10)) { ctx in
-                Text(ContentView.fuzzyLabel(from: updated, tick: ctx.date))
-                    .font(.caption2)
+            HStack(spacing: 6) {
+                TimelineView(.periodic(from: updated, by: 10)) { ctx in
+                    Text(ContentView.fuzzyLabel(from: updated, tick: ctx.date))
+                        .font(.caption2)
+                }
+                if boardLoad.showingStaleCache {
+                    Text("Cached • couldn't refresh")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.red)
+                }
             }
-            .foregroundStyle(Color(.secondaryLabel).opacity(0.65))
+            .foregroundStyle(boardLoad.showingStaleCache ? AnyShapeStyle(.red) : AnyShapeStyle(Color(.secondaryLabel).opacity(0.65)))
             .textCase(nil)
         }
     }
@@ -722,6 +730,7 @@ struct DepartureBoardView: View {
                 boardLoad.errorMessage = nil
             }
             boardLoad.lastUpdate = cached.loadedAt
+            boardLoad.showingStaleCache = false
         }
 
         do {
@@ -732,6 +741,7 @@ struct DepartureBoardView: View {
             }
             if !silent { UINotificationFeedbackGenerator().notificationOccurred(.success) }
             boardLoad.lastUpdate = Date()
+            boardLoad.showingStaleCache = false
             BoardCacheStore.shared.save(board: result, for: cacheKey, loadedAt: boardLoad.lastUpdate ?? Date())
 
             let route = BoardRoute(
@@ -751,6 +761,9 @@ struct DepartureBoardView: View {
             if boardLoad.board == nil {
                 if !silent { boardLoad.errorMessage = DepartureBoardView.boardErrorMessages.randomElement()! }
                 if !silent { UINotificationFeedbackGenerator().notificationOccurred(.error) }
+                boardLoad.showingStaleCache = false
+            } else {
+                boardLoad.showingStaleCache = true
             }
         }
         boardLoad.isLoading = false

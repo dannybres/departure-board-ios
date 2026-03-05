@@ -58,6 +58,7 @@ struct SettingsView: View {
     @State private var awarenessMessage: String?
     @State private var showAwarenessMessage = false
     @State private var cachedBoards: [BoardCacheStore.CachedBoardSummary] = []
+    @State private var cachedServices: [ServiceCacheStore.CachedServiceSummary] = []
     @State private var lastAllowedAutoLoadMode: String = "off"
     private let freeNearbyLimit = 3
     private let debugMenuCode = "Everton"
@@ -165,6 +166,15 @@ struct SettingsView: View {
     private func clearCachedBoards() {
         BoardCacheStore.shared.clearAll()
         refreshCachedBoards()
+    }
+
+    private func refreshCachedServices() {
+        cachedServices = ServiceCacheStore.shared.listCachedServices()
+    }
+
+    private func clearCachedServices() {
+        ServiceCacheStore.shared.clearAll()
+        refreshCachedServices()
     }
 
     var body: some View {
@@ -684,6 +694,44 @@ struct SettingsView: View {
                             .buttonStyle(.bordered)
                         }
                     }
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Cached Services")
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Button("Refresh") {
+                                refreshCachedServices()
+                            }
+                            .buttonStyle(.bordered)
+                        }
+
+                        if cachedServices.isEmpty {
+                            Text("No cached services.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(cachedServices) { cached in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(cached.scheduled) \(cached.boardType == .arrivals ? cached.originName : cached.destinationName)")
+                                        .font(.caption.weight(.semibold))
+                                    Text("\(cached.boardType.rawValue.capitalized) • \(cached.locationName) • \(cached.key.serviceID)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                    Text("Cached \(ContentView.fuzzyLabel(from: cached.loadedAt, tick: Date()))")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.vertical, 2)
+                            }
+                            Button(role: .destructive) {
+                                clearCachedServices()
+                            } label: {
+                                Text("Clear All Cached Services")
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
                     Button {
                         shareReleaseCard()
                     } label: {
@@ -692,6 +740,7 @@ struct SettingsView: View {
                 }
                 .onAppear {
                     refreshCachedBoards()
+                    refreshCachedServices()
                 }
             }
 
