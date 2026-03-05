@@ -263,6 +263,41 @@ struct DualStationProvider: AppIntentTimelineProvider {
     }
 }
 
+// MARK: - Lock Screen Provider
+
+struct LockScreenStationProvider: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> DepartureEntry {
+        .mock(stationCount: 1, serviceCount: 4)
+    }
+
+    func snapshot(for configuration: SingleStationIntent, in context: Context) async -> DepartureEntry {
+        if context.isPreview {
+            return .mock(stationCount: 1, serviceCount: 4)
+        }
+        return await fetchEntry(boards: selectedBoards(for: configuration), servicesPerStation: 16)
+    }
+
+    func timeline(for configuration: SingleStationIntent, in context: Context) async -> Timeline<DepartureEntry> {
+        if let loc = loadLastKnownLocation(), !isInUK(lat: loc.lat, lon: loc.lon) {
+            return travelTimeline()
+        }
+
+        let baseEntry = await fetchEntry(boards: selectedBoards(for: configuration), servicesPerStation: 16)
+        let now = Date()
+        let entries = lockScreenTimelineEntries(from: baseEntry, now: now)
+        let nextRefresh = now.addingTimeInterval(300)
+        return Timeline(entries: entries, policy: .after(nextRefresh))
+    }
+
+    private func selectedBoards(for config: SingleStationIntent) -> [BoardConfig] {
+        if let board = config.board {
+            let raw = BoardConfig(crs: board.crs, boardType: board.boardType, filterCrs: board.filterCrs, filterType: board.filterType)
+            return [resolveBoard(raw)]
+        }
+        return defaultBoards(count: 1)
+    }
+}
+
 // MARK: - Shared Fetch Logic
 
 struct BoardConfig {
@@ -369,6 +404,92 @@ private func fetchEntry(boards: [BoardConfig], servicesPerStation: Int) async ->
     }
 
     return DepartureEntry(date: Date(), stations: stationDepartures)
+}
+
+private func lockScreenTimelineEntries(from entry: DepartureEntry, now: Date) -> [DepartureEntry] {
+    guard !entry.stations.isEmpty else {
+        return [DepartureEntry(date: now, stations: [], isOutsideUK: entry.isOutsideUK, londonTimeString: entry.londonTimeString)]
+    }
+
+    let checkpoints = lockScreenCheckpoints(stations: entry.stations, now: now)
+    return checkpoints.map { checkpoint in
+        let trimmedStations = entry.stations.map { station in
+            let services = lockScreenUpcomingServices(from: station.services, at: checkpoint)
+            return DepartureEntry.StationDepartures(
+                name: station.name,
+                crs: station.crs,
+                filterLabel: station.filterLabel,
+                filterCrs: station.filterCrs,
+                filterType: station.filterType,
+                services: services,
+                errorMessage: station.errorMessage
+            )
+        }
+        return DepartureEntry(date: checkpoint, stations: trimmedStations, isOutsideUK: entry.isOutsideUK, londonTimeString: entry.londonTimeString)
+    }
+}
+
+private func lockScreenCheckpoints(stations: [DepartureEntry.StationDepartures], now: Date) -> [Date] {
+    var points: [Date] = [now]
+    for station in stations {
+        let serviceTimes = serviceScheduleDates(for: station.services, reference: now)
+        for service in station.services {
+            guard let scheduledDate = serviceTimes[service.id] else { continue }
+            let cutoff = scheduledDate.addingTimeInterval(120)
+            if cutoff > now {
+                points.append(cutoff)
+            }
+        }
+    }
+
+    return Array(Set(points)).sorted()
+}
+
+private func lockScreenUpcomingServices(from services: [DepartureEntry.WidgetService], at date: Date) -> [DepartureEntry.WidgetService] {
+    let scheduleDates = serviceScheduleDates(for: services, reference: date)
+    return services.filter { service in
+        guard let scheduledDate = scheduleDates[service.id] else { return true }
+        return scheduledDate.addingTimeInterval(120) > date
+    }
+}
+
+private func serviceScheduleDates(for services: [DepartureEntry.WidgetService], reference: Date) -> [String: Date] {
+    let calendar = Calendar.current
+    var result: [String: Date] = [:]
+    var previousDate: Date?
+
+    for service in services {
+        guard let minutes = hhmmToMinutes(service.scheduled) else { continue }
+        let startOfDay = calendar.startOfDay(for: reference)
+        guard let candidateToday = calendar.date(byAdding: .minute, value: minutes, to: startOfDay) else { continue }
+        var scheduledDate = candidateToday
+
+        while scheduledDate < reference.addingTimeInterval(-3 * 3600) {
+            guard let next = calendar.date(byAdding: .day, value: 1, to: scheduledDate) else { break }
+            scheduledDate = next
+        }
+        if let previousDate {
+            while scheduledDate < previousDate {
+                guard let next = calendar.date(byAdding: .day, value: 1, to: scheduledDate) else { break }
+                scheduledDate = next
+            }
+        }
+
+        result[service.id] = scheduledDate
+        previousDate = scheduledDate
+    }
+
+    return result
+}
+
+private func hhmmToMinutes(_ text: String) -> Int? {
+    let parts = text.split(separator: ":")
+    guard parts.count == 2,
+          let hours = Int(parts[0]),
+          let minutes = Int(parts[1]),
+          (0..<24).contains(hours),
+          (0..<60).contains(minutes) else { return nil }
+    return hours * 60 + minutes
 }
 
 private func loadFavouriteBoards() -> [String] {
@@ -579,7 +700,7 @@ private struct InlineBoardView: View {
 
     var body: some View {
         if let service = station.services.first {
-            Text("\(service.scheduled) \(destinationArrow(service.destination)) \(statusText(for: service))")
+            Text("\(service.scheduled) \(destinationArrow(service.destination))\(cancelledSuffix(for: service))")
                 .lineLimit(1)
         } else if station.error {
             Text("Board unavailable")
@@ -600,7 +721,7 @@ private struct CircularBoardView: View {
                     .font(.system(.caption2, design: .monospaced).bold())
                     .minimumScaleFactor(0.7)
             }
-            .widgetLabel(circularStatus(for: service))
+            .widgetLabel(circularLabel(for: service))
         } else {
             ZStack {
                 AccessoryWidgetBackground()
@@ -640,10 +761,12 @@ private struct RectangularBoardView: View {
                             .font(.caption2)
                             .lineLimit(1)
                         Spacer(minLength: 2)
-                        Text(compactStatus(for: service))
-                            .font(.caption2)
-                            .foregroundStyle(statusColor(for: service))
-                            .lineLimit(1)
+                        if service.isCancelled {
+                            Text("Canx")
+                                .font(.caption2)
+                                .foregroundStyle(.red)
+                                .lineLimit(1)
+                        }
                     }
                 }
             }
@@ -655,52 +778,12 @@ private func destinationArrow(_ destination: String) -> String {
     "→ \(destination)"
 }
 
-private func statusText(for service: DepartureEntry.WidgetService) -> String {
-    if service.isCancelled { return "Cancelled" }
-    if service.isDelayed { return delayedStatus(for: service) }
-    return "On time"
+private func cancelledSuffix(for service: DepartureEntry.WidgetService) -> String {
+    service.isCancelled ? " Cancelled" : ""
 }
 
-private func delayedStatus(for service: DepartureEntry.WidgetService) -> String {
-    guard let delayMinutes = delayMinutes(for: service), delayMinutes > 0 else {
-        return "Delayed"
-    }
-    return "+\(delayMinutes)m"
-}
-
-private func compactStatus(for service: DepartureEntry.WidgetService) -> String {
-    if service.isCancelled { return "Canx" }
-    if service.isDelayed { return delayedStatus(for: service) }
-    return "On time"
-}
-
-private func circularStatus(for service: DepartureEntry.WidgetService) -> String {
-    if service.isCancelled { return "Canx" }
-    if service.isDelayed { return delayedStatus(for: service) }
-    return "On time"
-}
-
-private func statusColor(for service: DepartureEntry.WidgetService) -> Color {
-    if service.isCancelled { return .red }
-    if service.isDelayed { return .orange }
-    return .secondary
-}
-
-private func delayMinutes(for service: DepartureEntry.WidgetService) -> Int? {
-    guard isTimeFormat(service.status),
-          isTimeFormat(service.scheduled) else { return nil }
-    func minutes(from text: String) -> Int? {
-        let parts = text.split(separator: ":")
-        guard parts.count == 2,
-              let hours = Int(parts[0]),
-              let mins = Int(parts[1]) else { return nil }
-        return hours * 60 + mins
-    }
-    guard let statusMinutes = minutes(from: service.status),
-          let scheduledMinutes = minutes(from: service.scheduled) else { return nil }
-    var delta = statusMinutes - scheduledMinutes
-    if delta < 0 { delta += 24 * 60 }
-    return delta
+private func circularLabel(for service: DepartureEntry.WidgetService) -> String {
+    service.isCancelled ? "Cancelled" : "Scheduled"
 }
 
 enum WidgetRowStyle {
@@ -1055,7 +1138,7 @@ struct LockScreenBoardWidget: Widget {
     let kind = "LockScreenBoardWidget"
 
     var body: some WidgetConfiguration {
-        AppIntentConfiguration(kind: kind, intent: SingleStationIntent.self, provider: SingleStationProvider()) { entry in
+        AppIntentConfiguration(kind: kind, intent: SingleStationIntent.self, provider: LockScreenStationProvider()) { entry in
             LockScreenBoardWidgetView(entry: entry)
                 .widgetURL(lockScreenBoardURL(from: entry))
                 .containerBackground(.fill.tertiary, for: .widget)
@@ -1070,4 +1153,3 @@ private func lockScreenBoardURL(from entry: DepartureEntry) -> URL? {
     guard let station = entry.stations.first else { return nil }
     return URL(string: "departure://departures/\(station.crs)")
 }
-
