@@ -445,17 +445,26 @@ struct StationInfoView: View {
                                     .foregroundStyle(.secondary)
                                     .copyable(stripHTML(contactNote))
                             }
-                            if let website = helpline.contactDetails?.url,
-                               let url = URL(string: website) {
-                                Link(destination: url) {
+                            if let website = helpline.contactDetails?.url, !website.isEmpty {
+                                if let url = URL(string: website), url.scheme == "https" || url.scheme == "http" {
+                                    Link(destination: url) {
+                                        LabeledContent("Website") {
+                                            Text(website)
+                                                .lineLimit(1)
+                                                .truncationMode(.middle)
+                                        }
+                                    }
+                                    .font(.caption)
+                                    .copyable(website)
+                                } else {
                                     LabeledContent("Website") {
                                         Text(website)
                                             .lineLimit(1)
                                             .truncationMode(.middle)
                                     }
+                                    .font(.caption)
+                                    .copyable(website)
                                 }
-                                .font(.caption)
-                                .copyable(website)
                             }
                         } label: {
                             Label("Assisted Travel Helpline", systemImage: "phone.arrow.right")
@@ -566,17 +575,26 @@ struct StationInfoView: View {
                                     .font(.caption)
                                     .copyable(phone)
                                 }
-                                if let website = carPark.contactDetails?.url,
-                                   let url = URL(string: website) {
-                                    Link(destination: url) {
+                                if let website = carPark.contactDetails?.url, !website.isEmpty {
+                                    if let url = URL(string: website), url.scheme == "https" || url.scheme == "http" {
+                                        Link(destination: url) {
+                                            LabeledContent("Website") {
+                                                Text(website)
+                                                    .lineLimit(1)
+                                                    .truncationMode(.middle)
+                                            }
+                                        }
+                                        .font(.caption)
+                                        .copyable(website)
+                                    } else {
                                         LabeledContent("Website") {
                                             Text(website)
                                                 .lineLimit(1)
                                                 .truncationMode(.middle)
                                         }
+                                        .font(.caption)
+                                        .copyable(website)
                                     }
-                                    .font(.caption)
-                                    .copyable(website)
                                 }
                                 if let hours = carPark.open?.dayAndTimeAvailability {
                                     ForEach(Array(hours.enumerated()), id: \.offset) { _, entry in
@@ -768,16 +786,24 @@ struct StationInfoView: View {
                 .copyable(phone)
             }
 
-            if let website = service.contactDetails?.url,
-               let url = URL(string: website) {
-                Link(destination: url) {
+            if let website = service.contactDetails?.url, !website.isEmpty {
+                if let url = URL(string: website), url.scheme == "https" || url.scheme == "http" {
+                    Link(destination: url) {
+                        LabeledContent("Website") {
+                            Text(website)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                    .copyable(website)
+                } else {
                     LabeledContent("Website") {
                         Text(website)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
+                    .copyable(website)
                 }
-                .copyable(website)
             }
 
             if let hours = service.open?.annotation?.note, !stripHTML(hours).isEmpty {

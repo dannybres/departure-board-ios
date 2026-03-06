@@ -167,7 +167,7 @@ struct SubscribeView: View {
             icon: "lock.iphone",
             title: "Lock Screen Widgets",
             subtitle: "See your next train directly on your Lock Screen with glanceable inline, circular, and rectangular layouts.",
-            preview: AnyView(WidgetPreview(places: mockPlaceTheme))
+            preview: AnyView(LockScreenWidgetPreview(places: mockPlaceTheme))
             ),
             PaywallPage(
             id: 2,
@@ -425,6 +425,114 @@ private struct MockWidget: View {
                 Spacer()
             }
         }
+    }
+}
+
+// MARK: Lock Screen Widgets
+
+private struct LockScreenWidgetPreview: View {
+    let places: MockPlaceTheme
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color(red: 0.08, green: 0.10, blue: 0.22), Color(red: 0.18, green: 0.12, blue: 0.30)],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+
+            VStack(spacing: 0) {
+                Spacer()
+
+                // accessoryInline: plain text "scheduled destination"
+                Text("08:22 \(places.primaryDestinations[0])")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .padding(.bottom, 6)
+
+                // Lock screen clock
+                VStack(spacing: 0) {
+                    Text("08:22")
+                        .font(.system(size: 62, weight: .thin))
+                        .foregroundStyle(.white)
+                        .monospacedDigit()
+                    Text("Wednesday 6 March")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+
+                Spacer().frame(height: 22)
+
+                // accessoryCircular: stroked circle + train icon (exactly what the widget renders)
+                HStack(spacing: 20) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        ZStack {
+                            Circle()
+                                .strokeBorder(.white.opacity(0.35), lineWidth: 2)
+                            Image(systemName: "train.side.front.car")
+                                .font(.caption.bold())
+                                .foregroundStyle(.white)
+                        }
+                        .frame(width: 52, height: 52)
+                    }
+                }
+
+                Spacer().frame(height: 16)
+
+                // accessoryRectangular: station name header + 2 service rows (scheduled | destination | P{platform})
+                LockRectangularWidget(
+                    stationName: places.widgetStation,
+                    rows: [
+                        (scheduled: "08:22", destination: places.primaryDestinations[0], platform: "3"),
+                        (scheduled: "08:55", destination: places.primaryDestinations[1], platform: "1"),
+                    ]
+                )
+                .padding(.horizontal, 20)
+
+                Spacer()
+            }
+            .padding(.horizontal, 28)
+        }
+    }
+}
+
+private struct LockRectangularWidget: View {
+    let stationName: String
+    let rows: [(scheduled: String, destination: String, platform: String?)]
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(.white.opacity(0.12))
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(.white.opacity(0.2), lineWidth: 1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(stationName)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    HStack(spacing: 4) {
+                        Text(row.scheduled)
+                            .font(.system(.caption, design: .monospaced).bold())
+                            .foregroundStyle(.white)
+                        Text(row.destination)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.85))
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                        if let platform = row.platform {
+                            Text("P\(platform)")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.white)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+        }
+        .frame(height: 72)
     }
 }
 

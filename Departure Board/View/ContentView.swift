@@ -156,10 +156,22 @@ private struct NextServicePillView: View {
 
     let state: ContentState
     let refreshID: Int
+    var rowTheme: RowTheme = .none
+    var colourVibrancy: ColourVibrancy = .vibrant
     @Environment(\.stationNamesSmallCaps) private var stationNamesSmallCaps
     @AppStorage("splitFlapRefresh") private var splitFlapRefresh: Bool = false
 
     var body: some View {
+        if case .service(let service, let boardType) = state {
+            themedServicePill(service: service, boardType: boardType)
+        } else {
+            plainPill
+        }
+    }
+
+    // MARK: - Plain states (loading / failed / empty)
+
+    private var plainPill: some View {
         HStack(spacing: 5) {
             switch state {
             case .loading:
@@ -171,7 +183,6 @@ private struct NextServicePillView: View {
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(.tertiary)
                 Spacer(minLength: 0)
-
             case .failed:
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.caption2)
@@ -180,7 +191,6 @@ private struct NextServicePillView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
-
             case .empty:
                 Image(systemName: "tram.fill")
                     .font(.caption2)
@@ -189,55 +199,162 @@ private struct NextServicePillView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
-
-            case .service(let service, let boardType):
-                let scheduled    = boardType == .departures ? service.std : service.sta
-                let estimated    = boardType == .departures ? service.etd : service.eta
-                let isOnTime     = estimated == "On time"
-                let isDelayed    = !isOnTime && estimated != nil && !service.isCancelled
-                let locationName = boardType == .departures
-                    ? service.destination.first?.locationName
-                    : service.origin.first?.locationName
-
-                if let sched = scheduled {
-                    SplitFlapText(sched, trigger: refreshID, animated: splitFlapRefresh)
-                        .font(.system(.caption2, design: .monospaced).bold())
-                }
-                if let loc = locationName {
-                    SplitFlapText(loc, trigger: refreshID, animated: splitFlapRefresh)
-                        .font(Font.caption2.smallCapsIfEnabled(stationNamesSmallCaps))
-                        .lineLimit(1)
-                }
-                if service.isCancelled {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.red)
-                        .font(.caption2)
-                } else if isDelayed {
-                    Image(systemName: "clock.fill")
-                        .foregroundStyle(.orange)
-                        .font(.caption2)
-                }
-                Spacer(minLength: 0)
-                if isDelayed, let exp = estimated {
-                    Text(exp)
-                        .font(.system(.caption2, design: .monospaced).bold())
-                        .foregroundStyle(.orange)
-                }
-                if let platform = service.platform {
-                    Text(service.serviceType == "bus" ? platform : "Plat \(platform)")
-                        .font(.system(.caption2, design: .monospaced).weight(.bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Color(white: 0.2), in: RoundedRectangle(cornerRadius: 3))
-                        .environment(\.colorScheme, .dark)
-                }
+            case .service:
+                EmptyView()
             }
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
         .background(Theme.brandSubtle, in: RoundedRectangle(cornerRadius: 6))
         .animation(.easeOut(duration: 0.25), value: state)
+    }
+
+    // MARK: - Themed service pill
+
+    @ViewBuilder
+    private func themedServicePill(service: Service, boardType: BoardType) -> some View {
+        let scheduled    = boardType == .departures ? service.std : service.sta
+        let estimated    = boardType == .departures ? service.etd : service.eta
+        let isOnTime     = estimated == "On time"
+        let isDelayed    = !isOnTime && estimated != nil && !service.isCancelled
+        let locationName = boardType == .departures
+            ? service.destination.first?.locationName
+            : service.origin.first?.locationName
+        let colours      = OperatorColours.entry(for: service.operatorCode)
+        let accent       = colours.primary.opacity(colourVibrancy.opacity)
+        let contrastFg: Color = colours.primaryIsLight ? .black : .white
+
+        if rowTheme == .timePanel {
+            // timePanel: split layout — coloured left panel for time, brandSubtle right
+            HStack(spacing: 0) {
+                ZStack {
+                    accent
+                    if let sched = scheduled {
+                        SplitFlapText(sched, trigger: refreshID, animated: splitFlapRefresh)
+                            .font(.system(.caption2, design: .monospaced).bold())
+                            .foregroundStyle(colourVibrancy == .vibrant ? contrastFg : Color(.label))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                    }
+                }
+                .fixedSize(horizontal: true, vertical: false)
+
+                HStack(spacing: 5) {
+                    if let loc = locationName {
+                        SplitFlapText(loc, trigger: refreshID, animated: splitFlapRefresh)
+                            .font(Font.caption2.smallCapsIfEnabled(stationNamesSmallCaps))
+                            .lineLimit(1)
+                    }
+                    if service.isCancelled {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.red).font(.caption2)
+                    } else if isDelayed {
+                        Image(systemName: "clock.fill").foregroundStyle(.orange).font(.caption2)
+                    }
+                    Spacer(minLength: 0)
+                    if isDelayed, let exp = estimated {
+                        Text(exp).font(.system(.caption2, design: .monospaced).bold()).foregroundStyle(.orange)
+                    }
+                    if let platform = service.platform {
+                        pillPlatformBadge(platform: platform, service: service, accent: accent, contrastFg: contrastFg)
+                    }
+                }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .frame(maxWidth: .infinity)
+                .background(Theme.brandSubtle)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .animation(.easeOut(duration: 0.25), value: state)
+        } else {
+            // All other themes: same HStack layout, different decoration
+            HStack(spacing: 5) {
+                if let sched = scheduled {
+                    pillTimeText(sched, accent: accent, contrastFg: contrastFg)
+                }
+                if rowTheme == .signalRail {
+                    Rectangle()
+                        .fill(accent)
+                        .frame(width: 1.5)
+                        .padding(.vertical, -1)
+                }
+                if let loc = locationName {
+                    SplitFlapText(loc, trigger: refreshID, animated: splitFlapRefresh)
+                        .font(Font.caption2.smallCapsIfEnabled(stationNamesSmallCaps))
+                        .lineLimit(1)
+                        .foregroundStyle(rowTheme == .boardWash && colourVibrancy == .vibrant ? contrastFg : Color(.label))
+                }
+                if service.isCancelled {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(adaptedStatusColor(.red, colours: colours))
+                        .font(.caption2)
+                } else if isDelayed {
+                    Image(systemName: "clock.fill")
+                        .foregroundStyle(adaptedStatusColor(.orange, colours: colours))
+                        .font(.caption2)
+                }
+                Spacer(minLength: 0)
+                if isDelayed, let exp = estimated {
+                    Text(exp)
+                        .font(.system(.caption2, design: .monospaced).bold())
+                        .foregroundStyle(adaptedStatusColor(.orange, colours: colours))
+                }
+                if let platform = service.platform {
+                    pillPlatformBadge(platform: platform, service: service, accent: accent, contrastFg: contrastFg)
+                }
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(pillBackground(accent: accent), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(alignment: .leading) {
+                if rowTheme == .trackline {
+                    RoundedRectangle(cornerRadius: 6).fill(accent).frame(width: 3)
+                }
+            }
+            .animation(.easeOut(duration: 0.25), value: state)
+        }
+    }
+
+    @ViewBuilder
+    private func pillTimeText(_ scheduled: String, accent: Color, contrastFg: Color) -> some View {
+        let text = SplitFlapText(scheduled, trigger: refreshID, animated: splitFlapRefresh)
+            .font(.system(.caption2, design: .monospaced).bold())
+        switch rowTheme {
+        case .timeTile:
+            text
+                .foregroundStyle(colourVibrancy == .vibrant ? contrastFg : Color(.label))
+                .padding(.vertical, 1)
+                .padding(.horizontal, 4)
+                .background(accent, in: RoundedRectangle(cornerRadius: 3))
+        case .boardWash:
+            text.foregroundStyle(colourVibrancy == .vibrant ? contrastFg : Color(.label))
+        default:
+            text.foregroundStyle(Color(.label))
+        }
+    }
+
+    private func pillBackground(accent: Color) -> Color {
+        rowTheme == .boardWash ? accent : Theme.brandSubtle
+    }
+
+    /// Adapts red/orange status colours when the pill background is a solid operator colour.
+    /// Mirrors DepartureRow.adaptedStatusColor — darkens on light primaries, lightens on dark ones.
+    private func adaptedStatusColor(_ base: Color, colours: OperatorColours.Entry) -> Color {
+        guard rowTheme == .boardWash && colourVibrancy == .vibrant else { return base }
+        return colours.primaryIsLight
+            ? base.mix(with: .black, by: 0.35)
+            : base.mix(with: .white, by: 0.45)
+    }
+
+    private func pillPlatformBadge(platform: String, service: Service, accent: Color, contrastFg: Color) -> some View {
+        let badgeBg: Color = rowTheme == .platformPulse ? accent : Color(white: 0.2)
+        let badgeFg: Color = rowTheme == .platformPulse && colourVibrancy == .vibrant ? contrastFg : .white
+        return Text(service.serviceType == "bus" ? platform : "Plat \(platform)")
+            .font(.system(.caption2, design: .monospaced).weight(.bold))
+            .foregroundStyle(badgeFg)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(badgeBg, in: RoundedRectangle(cornerRadius: 3))
+            .environment(\.colorScheme, .dark)
     }
 }
 
@@ -311,11 +428,13 @@ struct ContentView: View {
     @AppStorage(SharedDefaults.Keys.favouriteBoards, store: SharedDefaults.shared) private var favouriteBoardsData: Data = Data()
     @AppStorage(SharedDefaults.Keys.recentFilters, store: SharedDefaults.shared) private var recentFiltersData: Data = Data()
     @AppStorage("nearbyStationCount") private var nearbyCount: Int = 5
-    @AppStorage("recentFilterCount") private var recentFilterCount: Int = 3
+    @AppStorage(SharedDefaults.Keys.recentFilterCount) private var recentFilterCount: Int = 3
     @AppStorage("showRecentFilters") private var showRecentFilters: Bool = true
     @AppStorage("mapsProvider") private var mapsProvider: String = "apple"
     @AppStorage("showNextServiceOnFavourites") private var showNextServiceOnFavourites: Bool = true
     @AppStorage("nextServiceTappable") private var nextServiceTappable: Bool = false
+    @AppStorage(SharedDefaults.Keys.rowTheme) private var rowThemeRaw: String = RowTheme.none.rawValue
+    @AppStorage(SharedDefaults.Keys.colourVibrancy) private var colourVibrancyRaw: String = ColourVibrancy.vibrant.rawValue
     @AppStorage("splitFlapRefresh") private var splitFlapRefresh: Bool = false
     @AppStorage("stationNamesSmallCaps") private var stationNamesSmallCaps: Bool = false
     @AppStorage("autoLoadMode") private var autoLoadMode: String = "off"
@@ -344,6 +463,14 @@ struct ContentView: View {
 
     private var effectiveShowNextServiceOnFavourites: Bool {
         hasPremiumAccess && showNextServiceOnFavourites
+    }
+
+    private var effectiveRowTheme: RowTheme {
+        hasPremiumAccess ? (RowTheme(rawValue: rowThemeRaw) ?? .none) : .none
+    }
+
+    private var effectiveColourVibrancy: ColourVibrancy {
+        hasPremiumAccess ? (ColourVibrancy(rawValue: colourVibrancyRaw) ?? .vibrant) : .vibrant
     }
 
     private var effectiveStationNamesSmallCaps: Bool {
@@ -1791,11 +1918,11 @@ struct ContentView: View {
         let refreshID = nextServiceStore.refreshIDs[id, default: 0]
         if case .service = state, let onTap, nextServiceTappable {
             Button(action: onTap) {
-                NextServicePillView(state: state, refreshID: refreshID)
+                NextServicePillView(state: state, refreshID: refreshID, rowTheme: effectiveRowTheme, colourVibrancy: effectiveColourVibrancy)
             }
             .buttonStyle(.plain)
         } else {
-            NextServicePillView(state: state, refreshID: refreshID)
+            NextServicePillView(state: state, refreshID: refreshID, rowTheme: effectiveRowTheme, colourVibrancy: effectiveColourVibrancy)
         }
     }
 

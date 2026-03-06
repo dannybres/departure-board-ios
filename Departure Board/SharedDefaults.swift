@@ -22,8 +22,8 @@ struct ParsedBoardID: Identifiable {
 }
 
 enum APIConfig {
-//    static let baseURL = "https://railtest.breslan.co.uk/api/v1"
-    static let baseURL = "https://rail.breslan.co.uk/api/v1"
+    static let baseURL = "https://railtest.breslan.co.uk/api/v1"
+//    static let baseURL = "https://rail.breslan.co.uk/api/v1"
 }
 
 enum SharedDefaults {
@@ -46,6 +46,7 @@ enum SharedDefaults {
         static let widgetSplitFlap    = "widgetSplitFlap"
         static let premiumAccessSnapshot = "premiumAccessSnapshot"
         static let hasActiveSubscription = "hasActiveSubscription"
+        static let recentFilterCount        = "recentFilterCount"
         static let pendingIntentDeepLinkURL = "pendingIntentDeepLinkURL"
         static let awarenessSiriSuggestionsEnabled = "awarenessSiriSuggestionsEnabled"
         static let awarenessSpotlightStationsEnabled = "awarenessSpotlightStationsEnabled"
@@ -107,7 +108,8 @@ enum SharedDefaults {
         var recents = loadRecentFilters()
         recents.removeAll { $0 == id }
         recents.insert(id, at: 0)
-        let limit = UserDefaults.standard.object(forKey: "recentFilterCount") as? Int ?? 3
+        let raw = UserDefaults.standard.object(forKey: Keys.recentFilterCount) as? Int ?? 3
+        let limit = min(max(raw, 1), 10)
         recents = Array(recents.prefix(limit))
         if let data = try? JSONEncoder().encode(recents) {
             shared.set(data, forKey: Keys.recentFilters)

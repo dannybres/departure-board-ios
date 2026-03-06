@@ -623,7 +623,8 @@ private func fetchBoard(crs: String, boardType: BoardType, numRows: Int, filterC
     if let filterCrs { queryItems.append(URLQueryItem(name: "filterCrs", value: filterCrs)) }
     if let filterType { queryItems.append(URLQueryItem(name: "filterType", value: filterType)) }
     components.queryItems = queryItems
-    let (data, response) = try await URLSession.shared.data(from: components.url!)
+    guard let url = components.url else { throw URLError(.badURL) }
+    let (data, response) = try await URLSession.shared.data(from: url)
     guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
         throw URLError(.badServerResponse)
     }

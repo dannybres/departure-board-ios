@@ -15,7 +15,7 @@ struct SettingsView: View {
     @StateObject private var trial = TrialManager.shared
     @EnvironmentObject private var entitlement: EntitlementManager
     @AppStorage("nearbyStationCount") var nearbyCount: Int = 5
-    @AppStorage("recentFilterCount") var recentFilterCount: Int = 3
+    @AppStorage(SharedDefaults.Keys.recentFilterCount) var recentFilterCount: Int = 3
     @AppStorage("showRecentFilters") var showRecentFilters: Bool = true
     @AppStorage("mapsProvider") var mapsProvider: String = "apple"
     @AppStorage("showNextServiceOnFavourites") var showNextServiceOnFavourites: Bool = true
